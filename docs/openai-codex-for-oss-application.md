@@ -21,15 +21,15 @@ Evidence rule: every claim below is tied to a repository fact or a public GitHub
 
 ## B. Why this repository qualifies
 
-I am the primary maintainer of `yandexuanxuan/mcp-evidence-gate`, an experimental verifier for MCP security receipts. It binds receipts to exact artifacts, checks freshness and scope, and applies deterministic release policy through a CLI and Node 24 GitHub Action. The repository has three alpha prereleases, 68 passing Vitest tests, an 11-case cross-repository dogfood matrix, and Trivy/OSV producer-consumer runs. I participate in Registry #1404 and mcp-use validation without claiming adoption.
+I am the primary maintainer of mcp-evidence-gate, an experimental MCP security-receipt verifier and GitHub Action. It binds receipts to exact artifacts, validates freshness and scope, and applies deterministic release policy. The project has 3 alpha releases, 68 passing tests, an 11-case cross-repo dogfood matrix, and Trivy/OSV producer-consumer validation. I also participate in Registry #1404 and mcp-use validation without claiming adoption.
 
 ## C. How API credits will be used
 
-I would use Codex to review pull requests and security-sensitive changes, triage issues, generate regression tests, monitor schema drift in the pinned Registry profile, maintain compatibility profiles, audit release evidence, and automate routine maintenance. Codex would be assistive: security and release conclusions remain grounded in deterministic tests, exact-head checks, runtime receipts, and human-verifiable evidence. It will not replace maintainer judgment or scanner results.
+I would use API credits for OSS maintenance: reviewing PRs and security-sensitive changes, triaging issues, generating regression tests, monitoring upstream MCP schema drift, maintaining compatibility profiles, auditing release evidence, and automating routine maintenance. Codex would be assistive; security and release conclusions would remain grounded in deterministic tests, exact-head checks, runtime evidence, and maintainer review.
 
 ## D. Anything else we should know?
 
-This is an experimental downstream implementation, not an official MCP project, and I make no Registry-adoption or broad-usage claim. Registry #1404 is an open, unmerged proposal; a proposal-author gave a positive discussion signal about my consumer invariants, not approval. mcp-use #2332 led to a maintainer-recommended fork-first experiment against `mcp-use@2.3.3`. My #2375 contribution received automated review, and its reported findings were addressed, then the PR was closed unmerged by the maintainer because `WARNING` semantics remain unresolved in conformance #430. I continue maintaining the verifier, Action, CLI, profiles, tests, dogfood, and producer integrations.
+mcp-evidence-gate is experimental and is not an official MCP project; I do not claim Registry adoption or broad usage. Registry #1404 remains open and unmerged, although its proposal author gave a positive discussion signal on my consumer-side invariants. mcp-use #2332 led to a maintainer-recommended fork validation. My #2375 PR was closed unmerged while WARNING semantics remain unresolved upstream in conformance #430. I continue actively maintaining the project.
 
 ## Evidence links used by the application
 
