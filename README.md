@@ -6,6 +6,32 @@ This project is **not** an MCP Registry implementation, an official MCP project,
 
 `mcp-evidence-gate` is a downstream release admission controller: it turns scanner-neutral MCP security receipts into deterministic, auditable release decisions without conflating evidence quality with server safety.
 
+## Why this project matters
+
+MCP security receipts can report a scanner verdict without proving that the evidence still covers the exact artifact, scope, or freshness window a release is about to ship. `mcp-evidence-gate` is an experimental downstream verifier and release admission controller that binds evidence-scoped receipts to exact artifact/evidence bytes and evaluates deterministic, project-defined policy through a CLI and a Node 24 GitHub Action. It keeps scanner verdict, evidence validity, release policy, and server safety as separate claims.
+
+## Maintainer
+
+Primary maintainer: [@yandexuanxuan](https://github.com/yandexuanxuan)
+
+## Current evidence
+
+- Public MIT repository; the audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) is recorded in the application snapshot. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
+- `pnpm test`: 68 Vitest tests passed locally; the profile-drift sentinel adds 15 passing Node tests. The repository's CI and scheduled drift-sentinel runs are green for the audited baseline head.
+- Companion [dogfood repository](https://github.com/yandexuanxuan/mcp-evidence-gate-dogfood) records an 11-case Action matrix and successful real Trivy, OSV, multi-receipt composition, and OCI identity workflows. These are project-owned cross-repository acceptance evidence, not third-party adoption.
+- Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/yandexuanxuan/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
+- The pinned `registry-pr-1404` compatibility profile is locally matched to the current open PR's contract; drift is reported as `NON_CONTRACT_CHANGE` and kept pinned until reviewed.
+
+## Ecosystem engagement
+
+- [modelcontextprotocol/registry#1404](https://github.com/modelcontextprotocol/registry/pull/1404) is an open, unmerged proposal with no formal review. A proposal-author wrote “+1 to @yandexuanxuan's consumer-side invariants upthread”; this is a positive discussion signal, not maintainer approval, endorsement, schema acceptance, or Registry adoption.
+- [mcp-use#2332](https://github.com/mcp-use/mcp-use/issues/2332) resulted in the maintainer-recommended fork-first experiment against `mcp-use@2.3.3`; the fork run completed, with no upstream adoption claim.
+- [mcp-use#2375](https://github.com/mcp-use/mcp-use/pull/2375) was reviewed by automated checks and its reported findings were addressed, then closed unmerged by the maintainer because `WARNING` semantics remain unresolved in [conformance#430](https://github.com/modelcontextprotocol/conformance/issues/430). It is not evidence of an accepted upstream contribution.
+
+## Project status
+
+Experimental downstream implementation. Not an official MCP project. No claim of Registry adoption. No verified third-party adoption was found in the exact GitHub search documented in [`docs/openai-codex-for-oss-evidence-matrix.md`](docs/openai-codex-for-oss-evidence-matrix.md).
+
 The first compatibility profile is pinned to:
 
 ```text
