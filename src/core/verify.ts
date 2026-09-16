@@ -2,12 +2,17 @@ import { REGISTRY_PR_1404_PROFILE } from "../profiles/registry-pr-1404.js";
 import { verifyArtifactBinding, verifyEvidenceBinding } from "./digest.js";
 import { evaluateFreshness } from "./freshness.js";
 import { validateInconclusiveReason } from "./inconclusive.js";
+import { verifyScannerExecution } from "./scanner-execution.js";
 import { validateScanScope } from "./scope.js";
 import { validateReceiptStructure } from "./structural.js";
 import type { FreshnessOptions } from "./freshness.js";
 import type { ReceiptInput, VerificationResult } from "./types.js";
 
-export interface VerificationOptions extends Omit<FreshnessOptions, "now"> { evidencePath?: string; }
+export interface VerificationOptions extends Omit<FreshnessOptions, "now"> {
+  evidencePath?: string;
+  /** Opt into the project-defined scanner execution evidence contract. */
+  requireScannerExecutionCompleteness?: boolean;
+}
 
 export async function verifyReceiptEvidence(
   receipt: ReceiptInput,
@@ -28,7 +33,10 @@ export async function verifyReceiptEvidence(
       validateScanScope(receipt.scan_scope),
       validateInconclusiveReason(receipt.verdict, receipt.inconclusive_reason),
       ...(receipt.evidence_digest !== undefined || freshnessOptions.evidencePath
-        ? [await verifyEvidenceBinding(receipt.evidence_digest, freshnessOptions.evidencePath)] : [])
+        ? [await verifyEvidenceBinding(receipt.evidence_digest, freshnessOptions.evidencePath)] : []),
+      ...(freshnessOptions.requireScannerExecutionCompleteness
+        ? [await verifyScannerExecution(freshnessOptions.evidencePath)]
+        : [])
     ]
   };
 }

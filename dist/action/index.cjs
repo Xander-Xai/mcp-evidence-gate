@@ -27884,7 +27884,7 @@ __export(action_exports, {
 });
 module.exports = __toCommonJS(action_exports);
 var core = __toESM(require_core(), 1);
-var import_promises = require("node:fs/promises");
+var import_promises2 = require("node:fs/promises");
 var import_node_path = require("node:path");
 
 // src/profiles/registry-pr-1404.ts
@@ -27929,6 +27929,128 @@ var REGISTRY_PR_1404_PROFILE = {
   ],
   attestations: ["publisher-asserted", "registry-attested", "third-party-attested"]
 };
+
+// src/core/scanner-execution.ts
+var import_promises = require("node:fs/promises");
+var SCANNER_EXECUTION_SCHEMA_VERSION = "project-defined-scanner-execution-v1";
+var SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v1";
+var SCANNER_EXECUTION_STATUSES = ["complete", "incomplete", "failed"];
+var REQUIRED_BOOLEAN_FIELDS = [
+  "invocation_started",
+  "process_completed",
+  "exit_state_valid",
+  "output_present",
+  "output_exists",
+  "output_parseable",
+  "required_work_completed"
+];
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function stringArray(value) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.length > 0);
+}
+function malformed(details) {
+  return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_malformed", details };
+}
+function validateExecution(execution) {
+  if (execution.schema_version !== SCANNER_EXECUTION_SCHEMA_VERSION) {
+    return malformed(["schema_version"]);
+  }
+  if (typeof execution.scanner_contract !== "string" || execution.scanner_contract.length === 0) {
+    return malformed(["scanner_contract"]);
+  }
+  const missingFields = [
+    ...REQUIRED_BOOLEAN_FIELDS.filter((field) => typeof execution[field] !== "boolean"),
+    ...typeof execution.result_semantics_consistent !== "boolean" && execution.result_semantics_consistent !== null ? ["result_semantics_consistent"] : [],
+    ...execution.exit_code !== null && typeof execution.exit_code !== "number" ? ["exit_code"] : [],
+    ...execution.exit_code !== null && typeof execution.exit_code === "number" && !Number.isInteger(execution.exit_code) ? ["exit_code_integer"] : [],
+    ...execution.output_size !== null && typeof execution.output_size !== "number" ? ["output_size"] : [],
+    ...execution.output_size !== null && typeof execution.output_size === "number" && (!Number.isInteger(execution.output_size) || execution.output_size < 0) ? ["output_size_non_negative_integer"] : [],
+    ...typeof execution.completeness_reason !== "string" || execution.completeness_reason.length === 0 ? ["completeness_reason"] : []
+  ];
+  if (missingFields.length > 0)
+    return malformed(missingFields);
+  if (!stringArray(execution.required_components) || execution.required_components.length === 0) {
+    return malformed(["required_components"]);
+  }
+  if (!stringArray(execution.completed_components) || !stringArray(execution.failed_components)) {
+    return malformed(["completed_components", "failed_components"]);
+  }
+  const status = execution.completeness_status;
+  if (!SCANNER_EXECUTION_STATUSES.includes(status)) {
+    return malformed(["completeness_status"]);
+  }
+  const required = execution.required_components;
+  const completed = execution.completed_components;
+  const failed = execution.failed_components;
+  const overlappingComponents = completed.filter((component) => failed.includes(component));
+  if (overlappingComponents.length > 0) {
+    return {
+      id: "scanner_execution",
+      status: "invalid",
+      reason: "scanner_execution_contradictory",
+      details: ["component_marked_completed_and_failed", ...overlappingComponents]
+    };
+  }
+  if (status !== "complete" && execution.required_work_completed === true) {
+    return {
+      id: "scanner_execution",
+      status: "invalid",
+      reason: "scanner_execution_contradictory",
+      details: ["non_complete_status_with_required_work_completed"]
+    };
+  }
+  const completeClaimProven = execution.invocation_started === true && execution.process_completed === true && execution.exit_state_valid === true && execution.output_present === true && execution.output_exists === true && execution.output_parseable === true && execution.required_work_completed === true && execution.result_semantics_consistent === true && typeof execution.exit_code === "number" && Number.isInteger(execution.exit_code) && typeof execution.output_size === "number" && Number.isInteger(execution.output_size) && execution.output_size > 0 && failed.length === 0 && required.every((component) => completed.includes(component)) && overlappingComponents.length === 0;
+  if (status === "complete" && !completeClaimProven || status !== "complete" && completeClaimProven) {
+    return {
+      id: "scanner_execution",
+      status: "invalid",
+      reason: "scanner_execution_contradictory",
+      details: [
+        status === "complete" ? "completeness_status_complete_not_proven" : "non_complete_status_but_all_completion_conditions_are_true"
+      ]
+    };
+  }
+  if (status === "complete")
+    return { id: "scanner_execution", status: "pass", reason: "scanner_execution_complete" };
+  return {
+    id: "scanner_execution",
+    status: "invalid",
+    reason: status === "failed" ? "scanner_execution_failed" : "scanner_execution_incomplete",
+    details: [execution.completeness_reason]
+  };
+}
+async function verifyScannerExecution(evidencePath) {
+  if (!evidencePath) {
+    return { id: "scanner_execution", status: "not_present", reason: "scanner_execution_missing" };
+  }
+  let text;
+  try {
+    text = await (0, import_promises.readFile)(evidencePath, "utf8");
+  } catch {
+    return {
+      id: "scanner_execution",
+      status: "not_present",
+      reason: "scanner_execution_missing",
+      details: ["evidence_file_missing"]
+    };
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return malformed(["evidence_json"]);
+  }
+  if (!isObject(value))
+    return malformed(["evidence_object"]);
+  if (value.scanner_execution === void 0) {
+    return { id: "scanner_execution", status: "not_present", reason: "scanner_execution_missing" };
+  }
+  if (!isObject(value.scanner_execution))
+    return malformed(["scanner_execution_object"]);
+  return validateExecution(value.scanner_execution);
+}
 
 // src/core/freshness.ts
 var RFC3339_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
@@ -28011,7 +28133,8 @@ var PERMISSIVE_POLICY = {
   allowedAttestations: REGISTRY_PR_1404_PROFILE.attestations,
   clockSkewMs: 5 * 60 * 1e3,
   warningDisposition: "allow",
-  requireEvidenceBinding: false
+  requireEvidenceBinding: false,
+  requireScannerExecutionCompleteness: false
 };
 var STRICT_RELEASE_EXAMPLE_POLICY = {
   name: "strict-release-example",
@@ -28021,12 +28144,20 @@ var STRICT_RELEASE_EXAMPLE_POLICY = {
   maxScanAgeMs: 7 * 24 * 60 * 60 * 1e3,
   clockSkewMs: 5 * 60 * 1e3,
   warningDisposition: "block",
-  requireEvidenceBinding: false
+  requireEvidenceBinding: false,
+  requireScannerExecutionCompleteness: false
 };
 var STRICT_EVIDENCE_EXAMPLE_POLICY = {
   ...STRICT_RELEASE_EXAMPLE_POLICY,
   name: "strict-evidence-example",
   requireEvidenceBinding: true
+};
+var STRICT_SCANNER_COMPLETENESS_POLICY = {
+  ...PERMISSIVE_POLICY,
+  name: "strict-scanner-completeness",
+  requireEvidenceBinding: true,
+  requireScannerExecutionCompleteness: true,
+  policyVersion: SCANNER_EXECUTION_POLICY_VERSION
 };
 function policyByName(name) {
   if (name === PERMISSIVE_POLICY.name)
@@ -28035,6 +28166,8 @@ function policyByName(name) {
     return STRICT_RELEASE_EXAMPLE_POLICY;
   if (name === STRICT_EVIDENCE_EXAMPLE_POLICY.name)
     return STRICT_EVIDENCE_EXAMPLE_POLICY;
+  if (name === STRICT_SCANNER_COMPLETENESS_POLICY.name)
+    return STRICT_SCANNER_COMPLETENESS_POLICY;
   throw new Error(`unknown policy: ${name}`);
 }
 var RANK = {
@@ -28049,6 +28182,84 @@ function highestDecision(reasons) {
     "pass"
   );
 }
+function bindingIntegrity(verification, policy, structure) {
+  if (structure?.status === "invalid")
+    return "invalid";
+  const artifact = verification.checks.find((check) => check.id === "artifact_binding");
+  const evidence = verification.checks.find((check) => check.id === "evidence_binding");
+  let status = "pass";
+  for (const [kind, check] of [["artifact", artifact], ["evidence", evidence]]) {
+    if (!check) {
+      if (kind === "artifact")
+        status = "inconclusive";
+      continue;
+    }
+    if (check.status === "invalid")
+      status = "invalid";
+    else if (check.status !== "pass" && !(kind === "evidence" && check.status === "not_present" && check.reason === "evidence_file_not_provided" && !policy.requireEvidenceBinding) && status !== "invalid")
+      status = "inconclusive";
+  }
+  if (policy.requireEvidenceBinding && evidence?.status !== "pass" && status === "pass") {
+    status = evidence?.status === "invalid" ? "invalid" : "inconclusive";
+  }
+  return status;
+}
+function scannerStatusFor(scanner, integrityTrusted) {
+  if (!scanner)
+    return "missing";
+  if (!integrityTrusted) {
+    return scanner.reason === "scanner_execution_missing" ? "missing" : "unverified";
+  }
+  if (scanner.status === "pass")
+    return "complete";
+  if (scanner.reason === "scanner_execution_incomplete")
+    return "incomplete";
+  if (scanner.reason === "scanner_execution_failed")
+    return "failed";
+  if (scanner.reason === "scanner_execution_malformed")
+    return "malformed";
+  if (scanner.reason === "scanner_execution_contradictory")
+    return "contradictory";
+  if (scanner.reason === "scanner_execution_missing" || scanner.status === "not_present")
+    return "missing";
+  return "unverified";
+}
+function scannerDetail(status) {
+  switch (status) {
+    case "incomplete":
+      return "The evidence report states that required scanner work was not completed.";
+    case "failed":
+      return "The evidence report states that the scanner execution failed.";
+    case "missing":
+      return "A bound evidence report with scanner execution completeness is required by this policy.";
+    case "malformed":
+      return "The scanner execution evidence does not conform to its project-defined contract.";
+    case "contradictory":
+      return "The scanner execution status contradicts its component and result fields.";
+    case "unverified":
+      return "Scanner execution semantics cannot be trusted until evidence binding is verified.";
+    default:
+      return "Scanner execution completeness is not proven.";
+  }
+}
+function finish(receipt, verification, policy, reasons, scannerExecutionStatus, integrityStatus, receiptStatus) {
+  reasons.sort((left, right) => RANK[right.decision] - RANK[left.decision]);
+  const decision = highestDecision(reasons);
+  return {
+    policy: policy.name,
+    profile: REGISTRY_PR_1404_PROFILE.id,
+    decision,
+    reasons,
+    receiptVerdict: typeof receipt.verdict === "string" ? receipt.verdict : "unknown",
+    integrityStatus,
+    receiptStatus,
+    policyStatus: decision,
+    admissionStatus: decision,
+    scannerExecutionStatus,
+    reasonCodes: reasons.map((reason) => reason.code),
+    ...policy.policyVersion ? { policyVersion: policy.policyVersion } : {}
+  };
+}
 function evaluatePolicy(receipt, verification, policy, _now) {
   const now = new Date(verification.evaluatedAt);
   if (Number.isNaN(now.getTime()))
@@ -28056,15 +28267,12 @@ function evaluatePolicy(receipt, verification, policy, _now) {
   const reasons = [];
   const add = (code, decision, detail) => reasons.push({ code, decision, detail });
   const structure = verification.checks.find((check) => check.id === "receipt_structure");
+  const receiptStatus = structure?.status === "pass" ? "valid" : "invalid";
+  let integrityStatus = bindingIntegrity(verification, policy, structure);
+  const scanner = verification.checks.find((check) => check.id === "scanner_execution");
   if (structure?.status === "invalid") {
     add("receipt_structure_invalid", "fail", "Receipt failed the pinned structural conformance profile.");
-    return {
-      policy: policy.name,
-      profile: REGISTRY_PR_1404_PROFILE.id,
-      decision: "fail",
-      reasons,
-      receiptVerdict: typeof receipt.verdict === "string" ? receipt.verdict : "unknown"
-    };
+    return finish(receipt, verification, policy, reasons, "not_evaluated", integrityStatus, receiptStatus);
   }
   for (const check of verification.checks) {
     if (check.id === "artifact_binding" && check.status === "mismatch") {
@@ -28080,7 +28288,7 @@ function evaluatePolicy(receipt, verification, policy, _now) {
         check.reason === "scan_too_old" ? "Receipt scanned_at exceeds the maximum age allowed by policy." : "Receipt freshness has expired and cannot support a clean claim."
       );
     }
-    if (check.status === "invalid" && check.id !== "receipt_structure" && check.id !== "evidence_binding") {
+    if (check.status === "invalid" && check.id !== "receipt_structure" && check.id !== "evidence_binding" && check.id !== "scanner_execution") {
       add("evidence_check_invalid", "fail", `${check.id} evidence check is invalid.`);
     }
   }
@@ -28109,6 +28317,33 @@ function evaluatePolicy(receipt, verification, policy, _now) {
   }
   if (policy.requireEvidenceBinding && (!evidence || evidence.status === "not_present" && evidence.reason !== "evidence_file_missing")) {
     add("evidence_binding_required", "inconclusive", "This policy requires a locally provided evidence report bound by digest.");
+    if (integrityStatus === "pass")
+      integrityStatus = "inconclusive";
+  }
+  let scannerExecutionStatus = "not_evaluated";
+  if (policy.requireScannerExecutionCompleteness) {
+    const artifact = verification.checks.find((check) => check.id === "artifact_binding");
+    const evidenceTrusted = evidence?.status === "pass";
+    const integrityTrusted = artifact?.status === "pass" && evidenceTrusted;
+    scannerExecutionStatus = scannerStatusFor(scanner, integrityTrusted);
+    if (!scanner) {
+      add(
+        "scanner_execution_missing",
+        integrityTrusted ? "fail" : "inconclusive",
+        scannerDetail("missing")
+      );
+    } else if (scanner.status === "pass") {
+      if (!integrityTrusted) {
+        add("scanner_execution_unverified", "inconclusive", scannerDetail("unverified"));
+      }
+    } else if (!integrityTrusted) {
+      scannerExecutionStatus = "unverified";
+      add("scanner_execution_unverified", "inconclusive", scannerDetail("unverified"));
+    } else {
+      const reason = scanner.reason ?? "scanner_execution_malformed";
+      const status = scannerStatusFor(scanner, true);
+      add(reason, "fail", scannerDetail(status));
+    }
   }
   const freshness = verification.checks.find((check) => check.id === "freshness");
   if (policy.requireFreshness && freshness?.status === "not_present") {
@@ -28127,18 +28362,15 @@ function evaluatePolicy(receipt, verification, policy, _now) {
   if (verdict === "findings") {
     add("receipt_findings", "fail", "Receipt verdict reports findings.");
   } else if (verdict === "warnings") {
-    add(policy.warningDisposition === "block" ? "receipt_warnings_blocked" : "receipt_warnings", policy.warningDisposition === "block" ? "fail" : "warn", policy.warningDisposition === "block" ? "Policy blocks receipt warnings." : "Receipt verdict reports warnings.");
+    add(
+      policy.warningDisposition === "block" ? "receipt_warnings_blocked" : "receipt_warnings",
+      policy.warningDisposition === "block" ? "fail" : "warn",
+      policy.warningDisposition === "block" ? "Policy blocks receipt warnings." : "Receipt verdict reports warnings."
+    );
   } else if (verdict === "inconclusive") {
     add("receipt_inconclusive", "inconclusive", "Receipt verdict is inconclusive.");
   }
-  reasons.sort((left, right) => RANK[right.decision] - RANK[left.decision]);
-  return {
-    policy: policy.name,
-    profile: REGISTRY_PR_1404_PROFILE.id,
-    decision: highestDecision(reasons),
-    reasons,
-    receiptVerdict: verdict
-  };
+  return finish(receipt, verification, policy, reasons, scannerExecutionStatus, integrityStatus, receiptStatus);
 }
 
 // src/core/digest.ts
@@ -28343,7 +28575,8 @@ async function verifyReceiptEvidence(receipt, artifactPath, now, freshnessOption
       }),
       validateScanScope(receipt.scan_scope),
       validateInconclusiveReason(receipt.verdict, receipt.inconclusive_reason),
-      ...receipt.evidence_digest !== void 0 || freshnessOptions.evidencePath ? [await verifyEvidenceBinding(receipt.evidence_digest, freshnessOptions.evidencePath)] : []
+      ...receipt.evidence_digest !== void 0 || freshnessOptions.evidencePath ? [await verifyEvidenceBinding(receipt.evidence_digest, freshnessOptions.evidencePath)] : [],
+      ...freshnessOptions.requireScannerExecutionCompleteness ? [await verifyScannerExecution(freshnessOptions.evidencePath)] : []
     ]
   };
 }
@@ -28380,16 +28613,24 @@ async function runAction() {
   const artifactPath = workspacePath(artifactInput);
   const policy = policyByName(policyInput);
   const evaluatedAt = /* @__PURE__ */ new Date();
-  const receipt = JSON.parse(await (0, import_promises.readFile)(receiptPath, "utf8"));
+  const receipt = JSON.parse(await (0, import_promises2.readFile)(receiptPath, "utf8"));
   const verification = await verifyReceipt(receipt, artifactPath, evaluatedAt, {
     maxScanAgeMs: policy.maxScanAgeMs,
     clockSkewMs: policy.clockSkewMs,
-    evidencePath: evidenceInput ? workspacePath(evidenceInput) : void 0
+    evidencePath: evidenceInput ? workspacePath(evidenceInput) : void 0,
+    requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
   core.setOutput("decision", evaluation.decision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
   core.setOutput("profile", evaluation.profile);
+  core.setOutput("integrity-status", evaluation.integrityStatus);
+  core.setOutput("receipt-status", evaluation.receiptStatus);
+  core.setOutput("policy-status", evaluation.policyStatus);
+  core.setOutput("admission-status", evaluation.admissionStatus);
+  core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
+  core.setOutput("reason-codes", evaluation.reasonCodes.join(","));
+  core.setOutput("policy-version", evaluation.policyVersion ?? "");
   core.info(`MCP Evidence Gate decision: ${evaluation.decision.toUpperCase()}`);
   if (evaluation.decision === "warn") {
     core.warning(formatReasons(evaluation.reasons));

@@ -55,7 +55,7 @@ Options:
   --receipt <path>   Receipt JSON path for verify
   --set <path>       Project-defined receipt-set JSON path for verify-set
   --artifact <path>  Artifact path shared by all receipts (required)
-  --policy <name>    permissive, strict-release-example, or strict-evidence-example (required)
+  --policy <name>    permissive, strict-release-example, strict-evidence-example, or strict-scanner-completeness (required)
   --evidence <path>  Optional local evidence report for single-receipt evidence_digest binding
   --format <mode>    text or json (default: text)
   --now <RFC3339>    Evaluation time; defaults to the current time
@@ -181,6 +181,13 @@ function outputModel(
     policy: decision.policy,
     receiptVerdict: decision.receiptVerdict,
     decision: decision.decision,
+    integrity_status: decision.integrityStatus,
+    receipt_status: decision.receiptStatus,
+    policy_status: decision.policyStatus,
+    admission_status: decision.admissionStatus,
+    scanner_execution_status: decision.scannerExecutionStatus,
+    reason_codes: decision.reasonCodes,
+    ...(decision.policyVersion ? { policy_version: decision.policyVersion } : {}),
     evaluatedAt: verification.evaluatedAt,
     checks: verification.checks,
     reasons: decision.reasons
@@ -204,6 +211,11 @@ function renderText(model: ReturnType<typeof outputModel>): string {
     `Profile: ${model.profile}`,
     `Policy: ${model.policy}`,
     `Receipt verdict: ${model.receiptVerdict}`,
+    `Integrity status: ${model.integrity_status}`,
+    `Receipt status: ${model.receipt_status}`,
+    `Policy status: ${model.policy_status}`,
+    `Admission status: ${model.admission_status}`,
+    `Scanner execution: ${model.scanner_execution_status}`,
     `Evaluated at: ${model.evaluatedAt}`,
     "",
     ...model.checks.map((check) => {
@@ -226,6 +238,10 @@ function renderSetText(model: {
   artifactDigest: string;
   receiptCount: number;
   decision: string;
+  integrity_status: string;
+  receipt_status: string;
+  policy_status: string;
+  admission_status: string;
   receipts: Array<{
     index: number;
     id?: string;
@@ -233,6 +249,9 @@ function renderSetText(model: {
     source: string;
     receiptVerdict: string;
     decision: string;
+    integrityStatus: string;
+    receiptStatus: string;
+    scannerExecutionStatus: string;
   }>;
 }): string {
   const lines = [
@@ -241,10 +260,14 @@ function renderSetText(model: {
     `Policy: ${model.policy}`,
     `Artifact digest: ${model.artifactDigest}`,
     `Receipt count: ${model.receiptCount}`,
+    `Integrity status: ${model.integrity_status}`,
+    `Receipt status: ${model.receipt_status}`,
+    `Policy status: ${model.policy_status}`,
+    `Admission status: ${model.admission_status}`,
     `Evaluated at: ${model.evaluatedAt}`,
     "",
     ...model.receipts.map((entry) =>
-      `#${entry.index + 1}${entry.id ? ` [${entry.id}]` : ""} ${entry.scanner} ${entry.receiptVerdict.toUpperCase()} -> ${entry.decision.toUpperCase()} (${entry.source})`
+      `#${entry.index + 1}${entry.id ? ` [${entry.id}]` : ""} ${entry.scanner} ${entry.receiptVerdict.toUpperCase()} -> ${entry.decision.toUpperCase()} (${entry.source}; integrity=${entry.integrityStatus}; receipt=${entry.receiptStatus}; scanner_execution=${entry.scannerExecutionStatus})`
     ),
     "",
     `Decision: ${model.decision.toUpperCase()}`
@@ -272,7 +295,8 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       const verification = await verifyReceipt(receipt, parsed.artifact, evaluatedAt, {
         maxScanAgeMs: policy.maxScanAgeMs,
         clockSkewMs: policy.clockSkewMs,
-        evidencePath: parsed.evidence
+        evidencePath: parsed.evidence,
+        requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
       });
       const model = outputModel(policy, verification, receipt, evaluatedAt);
       if (parsed.format === "json") io.stdout(`${JSON.stringify(model, null, 2)}\n`);
@@ -304,6 +328,11 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
       artifactDigest: evaluation.artifactDigest,
       receiptCount: evaluation.receiptCount,
       decision: evaluation.decision,
+      integrity_status: evaluation.integrityStatus,
+      receipt_status: evaluation.receiptStatus,
+      policy_status: evaluation.policyStatus,
+      admission_status: evaluation.admissionStatus,
+      reason_codes: evaluation.reasonCodes,
       receipts: evaluation.receipts.map((entry) => ({
         index: entry.index,
         ...(entry.id ? { id: entry.id } : {}),
@@ -311,6 +340,16 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         source: manifest.receipts[entry.index].receipt,
         receiptVerdict: entry.evaluation.receiptVerdict,
         decision: entry.evaluation.decision,
+        integrityStatus: entry.evaluation.integrityStatus,
+        receiptStatus: entry.evaluation.receiptStatus,
+        scannerExecutionStatus: entry.evaluation.scannerExecutionStatus,
+        integrity_status: entry.evaluation.integrityStatus,
+        receipt_status: entry.evaluation.receiptStatus,
+        policy_status: entry.evaluation.policyStatus,
+        admission_status: entry.evaluation.admissionStatus,
+        scanner_execution_status: entry.evaluation.scannerExecutionStatus,
+        reason_codes: entry.evaluation.reasonCodes,
+        ...(entry.evaluation.policyVersion ? { policy_version: entry.evaluation.policyVersion } : {}),
         checks: entry.verification.checks,
         reasons: entry.evaluation.reasons
       }))

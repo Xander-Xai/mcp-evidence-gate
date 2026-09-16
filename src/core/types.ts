@@ -13,6 +13,7 @@ export interface Finding {
     | "receipt_structure"
     | "artifact_binding"
     | "evidence_binding"
+    | "scanner_execution"
     | "freshness"
     | "scan_scope"
     | "inconclusive_reason";

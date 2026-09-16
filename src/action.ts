@@ -26,13 +26,21 @@ export async function runAction(): Promise<void> {
   const verification = await verifyReceipt(receipt, artifactPath, evaluatedAt, {
     maxScanAgeMs: policy.maxScanAgeMs,
     clockSkewMs: policy.clockSkewMs,
-    evidencePath: evidenceInput ? workspacePath(evidenceInput) : undefined
+    evidencePath: evidenceInput ? workspacePath(evidenceInput) : undefined,
+    requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
 
   core.setOutput("decision", evaluation.decision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
   core.setOutput("profile", evaluation.profile);
+  core.setOutput("integrity-status", evaluation.integrityStatus);
+  core.setOutput("receipt-status", evaluation.receiptStatus);
+  core.setOutput("policy-status", evaluation.policyStatus);
+  core.setOutput("admission-status", evaluation.admissionStatus);
+  core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
+  core.setOutput("reason-codes", evaluation.reasonCodes.join(","));
+  core.setOutput("policy-version", evaluation.policyVersion ?? "");
   core.info(`MCP Evidence Gate decision: ${evaluation.decision.toUpperCase()}`);
 
   if (evaluation.decision === "warn") {
