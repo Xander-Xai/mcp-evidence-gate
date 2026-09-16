@@ -1,9 +1,11 @@
 import { sha256Artifact } from "./digest.js";
 import {
   evaluatePolicy,
+  type IntegrityStatus,
   type PolicyConfig,
   type PolicyDecision,
-  type PolicyEvaluation
+  type PolicyEvaluation,
+  type ReceiptStatus
 } from "./policy.js";
 import { verifyReceipt } from "./verify.js";
 import type { ReceiptInput, VerificationResult } from "./types.js";
@@ -29,6 +31,11 @@ export interface ReceiptSetEvaluation {
   artifactDigest: string;
   receiptCount: number;
   decision: PolicyDecision;
+  integrityStatus: IntegrityStatus;
+  receiptStatus: ReceiptStatus;
+  policyStatus: PolicyDecision;
+  admissionStatus: PolicyDecision;
+  reasonCodes: string[];
   receipts: ReceiptSetEntryEvaluation[];
 }
 
@@ -48,6 +55,12 @@ function highestCompositionDecision(decisions: readonly PolicyDecision[]): Polic
       COMPOSITION_RANK[decision] > COMPOSITION_RANK[current] ? decision : current,
     "pass"
   );
+}
+
+function highestIntegrityStatus(statuses: readonly IntegrityStatus[]): IntegrityStatus {
+  if (statuses.includes("invalid")) return "invalid";
+  if (statuses.includes("inconclusive")) return "inconclusive";
+  return "pass";
 }
 
 /**
@@ -77,7 +90,8 @@ export async function evaluateReceiptSet(
     const verification = await verifyReceipt(entry.receipt, artifactPath, now, {
       maxScanAgeMs: policy.maxScanAgeMs,
       clockSkewMs: policy.clockSkewMs,
-      evidencePath: entry.evidencePath
+      evidencePath: entry.evidencePath,
+      requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
     });
     if (verification.evaluatedAt !== evaluatedAt) {
       throw new Error("receipt_set_evaluation_time_drift");
@@ -104,13 +118,19 @@ export async function evaluateReceiptSet(
     throw new Error("receipt_set_profile_mismatch");
   }
 
+  const decision = highestCompositionDecision(receipts.map((entry) => entry.evaluation.decision));
   return {
     profile: receipts[0].verification.profile,
     policy: policy.name,
     evaluatedAt,
     artifactDigest,
     receiptCount: receipts.length,
-    decision: highestCompositionDecision(receipts.map((entry) => entry.evaluation.decision)),
+    decision,
+    integrityStatus: highestIntegrityStatus(receipts.map((entry) => entry.evaluation.integrityStatus)),
+    receiptStatus: receipts.some((entry) => entry.evaluation.receiptStatus === "invalid") ? "invalid" : "valid",
+    policyStatus: decision,
+    admissionStatus: decision,
+    reasonCodes: [...new Set(receipts.flatMap((entry) => entry.evaluation.reasonCodes))],
     receipts
   };
 }

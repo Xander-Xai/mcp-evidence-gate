@@ -1,28 +1,42 @@
 name: MCP Evidence Gate
-description: Experimental downstream verifier and CI policy gate for evidence-scoped MCP security receipts.
+description: "Experimental downstream verifier and CI policy gate for evidence-scoped MCP security receipts."
 author: yandexuanxuan
 
 inputs:
   receipt:
-    description: Path to the receipt JSON file.
+    description: "Path to the receipt JSON file."
     required: true
   artifact:
-    description: Path to the exact artifact bytes covered by the receipt.
+    description: "Path to the exact artifact bytes covered by the receipt."
     required: true
   policy:
-    description: Project-defined policy name, such as permissive or strict-release-example.
+    description: "Project-defined policy name, such as permissive or strict-scanner-completeness."
     required: true
   evidence:
-    description: Path to an optional local evidence report matching receipt.evidence_digest.
+    description: "Path to an optional local evidence report matching receipt.evidence_digest."
     required: false
 
 outputs:
   decision:
     description: "Derived policy decision: pass, warn, inconclusive, or fail."
   receipt-verdict:
-    description: Original scanner verdict from the receipt.
+    description: "Original scanner verdict from the receipt."
   profile:
-    description: Pinned compatibility profile identifier.
+    description: "Pinned compatibility profile identifier."
+  integrity-status:
+    description: "Artifact/evidence binding status: pass, inconclusive, or invalid."
+  receipt-status:
+    description: "Structural receipt status: valid or invalid."
+  policy-status:
+    description: "Local policy decision."
+  admission-status:
+    description: "Core admission decision."
+  scanner-execution-status:
+    description: "Scanner execution completeness status when enabled by policy."
+  reason-codes:
+    description: "Comma-separated stable policy reason codes."
+  policy-version:
+    description: "Version of the selected project-defined policy extension, if any."
 
 runs:
   using: node24

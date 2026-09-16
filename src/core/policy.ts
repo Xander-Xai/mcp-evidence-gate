@@ -1,9 +1,15 @@
 import { REGISTRY_PR_1404_PROFILE } from "../profiles/registry-pr-1404.js";
+import {
+  SCANNER_EXECUTION_POLICY_VERSION,
+  type ScannerExecutionOutputStatus
+} from "./scanner-execution.js";
 import { evaluateFreshness } from "./freshness.js";
-import type { ReceiptInput, VerificationResult } from "./types.js";
+import type { Finding, ReceiptInput, VerificationResult } from "./types.js";
 
 export type PolicyDecision = "pass" | "warn" | "inconclusive" | "fail";
 export type Attestation = (typeof REGISTRY_PR_1404_PROFILE.attestations)[number];
+export type IntegrityStatus = "pass" | "inconclusive" | "invalid";
+export type ReceiptStatus = "valid" | "invalid";
 
 export interface PolicyConfig {
   name: string;
@@ -14,6 +20,10 @@ export interface PolicyConfig {
   clockSkewMs?: number;
   warningDisposition: "allow" | "block";
   requireEvidenceBinding: boolean;
+  /** Explicit opt-in to the producer-owned scanner execution contract. */
+  requireScannerExecutionCompleteness?: boolean;
+  /** Version for a project-defined local policy extension, when applicable. */
+  policyVersion?: string;
 }
 
 export interface PolicyReason {
@@ -28,6 +38,17 @@ export interface PolicyEvaluation {
   decision: PolicyDecision;
   reasons: PolicyReason[];
   receiptVerdict: string;
+  /** Integrity of the artifact/evidence bindings, separate from admission. */
+  integrityStatus: IntegrityStatus;
+  /** Structural validity of the Registry receipt, separate from policy. */
+  receiptStatus: ReceiptStatus;
+  /** Policy result before any future outer release orchestration. */
+  policyStatus: PolicyDecision;
+  /** Current Core admission result; kept explicit as a separate layer. */
+  admissionStatus: PolicyDecision;
+  scannerExecutionStatus: ScannerExecutionOutputStatus;
+  reasonCodes: string[];
+  policyVersion?: string;
 }
 
 export const PERMISSIVE_POLICY: PolicyConfig = {
@@ -37,7 +58,8 @@ export const PERMISSIVE_POLICY: PolicyConfig = {
   allowedAttestations: REGISTRY_PR_1404_PROFILE.attestations,
   clockSkewMs: 5 * 60 * 1000,
   warningDisposition: "allow",
-  requireEvidenceBinding: false
+  requireEvidenceBinding: false,
+  requireScannerExecutionCompleteness: false
 };
 
 export const STRICT_RELEASE_EXAMPLE_POLICY: PolicyConfig = {
@@ -48,7 +70,8 @@ export const STRICT_RELEASE_EXAMPLE_POLICY: PolicyConfig = {
   maxScanAgeMs: 7 * 24 * 60 * 60 * 1000,
   clockSkewMs: 5 * 60 * 1000,
   warningDisposition: "block",
-  requireEvidenceBinding: false
+  requireEvidenceBinding: false,
+  requireScannerExecutionCompleteness: false
 };
 
 export const STRICT_EVIDENCE_EXAMPLE_POLICY: PolicyConfig = {
@@ -57,10 +80,24 @@ export const STRICT_EVIDENCE_EXAMPLE_POLICY: PolicyConfig = {
   requireEvidenceBinding: true
 };
 
+/**
+ * Local admission policy for producer-owned scanner execution evidence.
+ * Registry PR #1404 remains unchanged; this policy only opts a consumer into
+ * interpreting the versioned evidence extension.
+ */
+export const STRICT_SCANNER_COMPLETENESS_POLICY: PolicyConfig = {
+  ...PERMISSIVE_POLICY,
+  name: "strict-scanner-completeness",
+  requireEvidenceBinding: true,
+  requireScannerExecutionCompleteness: true,
+  policyVersion: SCANNER_EXECUTION_POLICY_VERSION
+};
+
 export function policyByName(name: string): PolicyConfig {
   if (name === PERMISSIVE_POLICY.name) return PERMISSIVE_POLICY;
   if (name === STRICT_RELEASE_EXAMPLE_POLICY.name) return STRICT_RELEASE_EXAMPLE_POLICY;
   if (name === STRICT_EVIDENCE_EXAMPLE_POLICY.name) return STRICT_EVIDENCE_EXAMPLE_POLICY;
+  if (name === STRICT_SCANNER_COMPLETENESS_POLICY.name) return STRICT_SCANNER_COMPLETENESS_POLICY;
   throw new Error(`unknown policy: ${name}`);
 }
 
@@ -78,6 +115,89 @@ function highestDecision(reasons: readonly PolicyReason[]): PolicyDecision {
   );
 }
 
+function bindingIntegrity(
+  verification: VerificationResult,
+  policy: PolicyConfig,
+  structure: Finding | undefined
+): IntegrityStatus {
+  if (structure?.status === "invalid") return "invalid";
+  const artifact = verification.checks.find((check) => check.id === "artifact_binding");
+  const evidence = verification.checks.find((check) => check.id === "evidence_binding");
+  let status: IntegrityStatus = "pass";
+  for (const [kind, check] of [["artifact", artifact], ["evidence", evidence]] as const) {
+    if (!check) {
+      if (kind === "artifact") status = "inconclusive";
+      continue;
+    }
+    if (check.status === "invalid") status = "invalid";
+    else if (
+      check.status !== "pass" &&
+      !(kind === "evidence" && check.status === "not_present" && check.reason === "evidence_file_not_provided" && !policy.requireEvidenceBinding) &&
+      status !== "invalid"
+    ) status = "inconclusive";
+  }
+  if (policy.requireEvidenceBinding && evidence?.status !== "pass" && status === "pass") {
+    status = evidence?.status === "invalid" ? "invalid" : "inconclusive";
+  }
+  return status;
+}
+
+function scannerStatusFor(
+  scanner: Finding | undefined,
+  integrityTrusted: boolean
+): ScannerExecutionOutputStatus {
+  if (!scanner) return "missing";
+  if (!integrityTrusted) {
+    return scanner.reason === "scanner_execution_missing" ? "missing" : "unverified";
+  }
+  if (scanner.status === "pass") return "complete";
+  if (scanner.reason === "scanner_execution_incomplete") return "incomplete";
+  if (scanner.reason === "scanner_execution_failed") return "failed";
+  if (scanner.reason === "scanner_execution_malformed") return "malformed";
+  if (scanner.reason === "scanner_execution_contradictory") return "contradictory";
+  if (scanner.reason === "scanner_execution_missing" || scanner.status === "not_present") return "missing";
+  return "unverified";
+}
+
+function scannerDetail(status: ScannerExecutionOutputStatus): string {
+  switch (status) {
+    case "incomplete": return "The evidence report states that required scanner work was not completed.";
+    case "failed": return "The evidence report states that the scanner execution failed.";
+    case "missing": return "A bound evidence report with scanner execution completeness is required by this policy.";
+    case "malformed": return "The scanner execution evidence does not conform to its project-defined contract.";
+    case "contradictory": return "The scanner execution status contradicts its component and result fields.";
+    case "unverified": return "Scanner execution semantics cannot be trusted until evidence binding is verified.";
+    default: return "Scanner execution completeness is not proven.";
+  }
+}
+
+function finish(
+  receipt: ReceiptInput,
+  verification: VerificationResult,
+  policy: PolicyConfig,
+  reasons: PolicyReason[],
+  scannerExecutionStatus: ScannerExecutionOutputStatus,
+  integrityStatus: IntegrityStatus,
+  receiptStatus: ReceiptStatus
+): PolicyEvaluation {
+  reasons.sort((left, right) => RANK[right.decision] - RANK[left.decision]);
+  const decision = highestDecision(reasons);
+  return {
+    policy: policy.name,
+    profile: REGISTRY_PR_1404_PROFILE.id,
+    decision,
+    reasons,
+    receiptVerdict: typeof receipt.verdict === "string" ? receipt.verdict : "unknown",
+    integrityStatus,
+    receiptStatus,
+    policyStatus: decision,
+    admissionStatus: decision,
+    scannerExecutionStatus,
+    reasonCodes: reasons.map((reason) => reason.code),
+    ...(policy.policyVersion ? { policyVersion: policy.policyVersion } : {})
+  };
+}
+
 export function evaluatePolicy(
   receipt: ReceiptInput,
   verification: VerificationResult,
@@ -90,16 +210,13 @@ export function evaluatePolicy(
   const add = (code: string, decision: PolicyDecision, detail: string) =>
     reasons.push({ code, decision, detail });
   const structure = verification.checks.find((check) => check.id === "receipt_structure");
+  const receiptStatus: ReceiptStatus = structure?.status === "pass" ? "valid" : "invalid";
+  let integrityStatus = bindingIntegrity(verification, policy, structure);
+  const scanner = verification.checks.find((check) => check.id === "scanner_execution");
 
   if (structure?.status === "invalid") {
     add("receipt_structure_invalid", "fail", "Receipt failed the pinned structural conformance profile.");
-    return {
-      policy: policy.name,
-      profile: REGISTRY_PR_1404_PROFILE.id,
-      decision: "fail",
-      reasons,
-      receiptVerdict: typeof receipt.verdict === "string" ? receipt.verdict : "unknown"
-    };
+    return finish(receipt, verification, policy, reasons, "not_evaluated", integrityStatus, receiptStatus);
   }
 
   for (const check of verification.checks) {
@@ -118,7 +235,12 @@ export function evaluatePolicy(
           : "Receipt freshness has expired and cannot support a clean claim."
       );
     }
-    if (check.status === "invalid" && check.id !== "receipt_structure" && check.id !== "evidence_binding") {
+    if (
+      check.status === "invalid" &&
+      check.id !== "receipt_structure" &&
+      check.id !== "evidence_binding" &&
+      check.id !== "scanner_execution"
+    ) {
       add("evidence_check_invalid", "fail", `${check.id} evidence check is invalid.`);
     }
   }
@@ -157,6 +279,38 @@ export function evaluatePolicy(
 
   if (policy.requireEvidenceBinding && (!evidence || (evidence.status === "not_present" && evidence.reason !== "evidence_file_missing"))) {
     add("evidence_binding_required", "inconclusive", "This policy requires a locally provided evidence report bound by digest.");
+    if (integrityStatus === "pass") integrityStatus = "inconclusive";
+  }
+
+  let scannerExecutionStatus: ScannerExecutionOutputStatus = "not_evaluated";
+  if (policy.requireScannerExecutionCompleteness) {
+    const artifact = verification.checks.find((check) => check.id === "artifact_binding");
+    const evidenceTrusted = evidence?.status === "pass";
+    const integrityTrusted = artifact?.status === "pass" && evidenceTrusted;
+    scannerExecutionStatus = scannerStatusFor(scanner, integrityTrusted);
+    // A missing scanner finding is a missing execution report, not an
+    // unverified semantic claim. Keep this distinction even when the evidence
+    // binding is absent or unreadable; "unverified" is reserved for a
+    // present scanner finding whose bytes are not trusted by the bindings.
+    if (!scanner || scanner.status === "not_present" || scanner.reason === "scanner_execution_missing") {
+      scannerExecutionStatus = "missing";
+      add(
+        "scanner_execution_missing",
+        integrityTrusted ? "fail" : "inconclusive",
+        scannerDetail("missing")
+      );
+    } else if (scanner.status === "pass") {
+      if (!integrityTrusted) {
+        add("scanner_execution_unverified", "inconclusive", scannerDetail("unverified"));
+      }
+    } else if (!integrityTrusted) {
+      scannerExecutionStatus = "unverified";
+      add("scanner_execution_unverified", "inconclusive", scannerDetail("unverified"));
+    } else {
+      const reason = scanner.reason ?? "scanner_execution_malformed";
+      const status = scannerStatusFor(scanner, true);
+      add(reason, "fail", scannerDetail(status));
+    }
   }
 
   const freshness = verification.checks.find((check) => check.id === "freshness");
@@ -179,17 +333,14 @@ export function evaluatePolicy(
   if (verdict === "findings") {
     add("receipt_findings", "fail", "Receipt verdict reports findings.");
   } else if (verdict === "warnings") {
-    add(policy.warningDisposition === "block" ? "receipt_warnings_blocked" : "receipt_warnings", policy.warningDisposition === "block" ? "fail" : "warn", policy.warningDisposition === "block" ? "Policy blocks receipt warnings." : "Receipt verdict reports warnings.");
+    add(
+      policy.warningDisposition === "block" ? "receipt_warnings_blocked" : "receipt_warnings",
+      policy.warningDisposition === "block" ? "fail" : "warn",
+      policy.warningDisposition === "block" ? "Policy blocks receipt warnings." : "Receipt verdict reports warnings."
+    );
   } else if (verdict === "inconclusive") {
     add("receipt_inconclusive", "inconclusive", "Receipt verdict is inconclusive.");
   }
 
-  reasons.sort((left, right) => RANK[right.decision] - RANK[left.decision]);
-  return {
-    policy: policy.name,
-    profile: REGISTRY_PR_1404_PROFILE.id,
-    decision: highestDecision(reasons),
-    reasons,
-    receiptVerdict: verdict
-  };
+  return finish(receipt, verification, policy, reasons, scannerExecutionStatus, integrityStatus, receiptStatus);
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { REGISTRY_PR_1404_PROFILE } from "../profiles/registry-pr-1404.js";
 import type { Finding } from "./types.js";
 
@@ -35,6 +36,46 @@ export function parseDigest(value: unknown): ParsedDigest {
 
 export function sha256Bytes(bytes: Uint8Array): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+/**
+ * The exact evidence bytes read for one verification attempt.  Callers must
+ * pass this snapshot to every evidence consumer so a path replacement cannot
+ * create a time-of-check/time-of-use gap between hashing and parsing.
+ */
+export interface EvidenceSnapshot {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+}
+
+export interface EvidenceSnapshotRead {
+  readonly provided: boolean;
+  readonly snapshot?: EvidenceSnapshot;
+  readonly error?: "evidence_file_missing";
+}
+
+export type EvidenceBytesReader = (path: string) => Promise<Uint8Array>;
+
+const readEvidenceBytes: EvidenceBytesReader = async (path) =>
+  new Uint8Array(await readFile(path));
+
+/** Read evidence bytes once and retain a detached snapshot for this attempt. */
+export async function readEvidenceSnapshot(
+  evidencePath?: string,
+  reader: EvidenceBytesReader = readEvidenceBytes
+): Promise<EvidenceSnapshotRead> {
+  if (!evidencePath) return { provided: false };
+  try {
+    // Copy the reader result so later mutation of a Buffer owned by the caller
+    // cannot change the bytes consumed by the verifier.
+    const bytes = Uint8Array.from(await reader(evidencePath));
+    return {
+      provided: true,
+      snapshot: Object.freeze({ path: evidencePath, bytes })
+    };
+  } catch {
+    return { provided: true, error: "evidence_file_missing" };
+  }
 }
 
 export async function sha256Artifact(path: string): Promise<string> {
@@ -74,23 +115,34 @@ export async function verifyArtifactBinding(
 }
 
 export async function verifyEvidenceBinding(receiptDigest: unknown, evidencePath?: string): Promise<Finding> {
+  return verifyEvidenceBindingBytes(receiptDigest, await readEvidenceSnapshot(evidencePath));
+}
+
+/** Verify the receipt evidence digest against the bytes from one snapshot. */
+export function verifyEvidenceBindingBytes(
+  receiptDigest: unknown,
+  evidence: EvidenceSnapshotRead
+): Finding {
   let expected: ParsedDigest;
   try { expected = parseDigest(receiptDigest); }
   catch (error) {
     const code = error instanceof DigestError ? error.code : "malformed_digest";
     if (code === "unsupported_digest_algorithm") {
-      if (!evidencePath) {
+      if (!evidence.provided) {
         return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
       }
       return { id: "evidence_binding", status: "unsupported", reason: code };
     }
     return { id: "evidence_binding", status: "invalid", reason: code };
   }
-  if (!evidencePath) return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
-  try {
-    const actual = await sha256Artifact(evidencePath);
-    return actual === `sha256:${expected.hex}`
-      ? { id: "evidence_binding", status: "pass", expected: actual, actual }
-      : { id: "evidence_binding", status: "mismatch", reason: "evidence_digest_mismatch", expected: `sha256:${expected.hex}`, actual };
-  } catch { return { id: "evidence_binding", status: "not_present", reason: "evidence_file_missing" }; }
+  if (!evidence.provided) {
+    return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
+  }
+  if (!evidence.snapshot) {
+    return { id: "evidence_binding", status: "not_present", reason: evidence.error ?? "evidence_file_missing" };
+  }
+  const actual = sha256Bytes(evidence.snapshot.bytes);
+  return actual === `sha256:${expected.hex}`
+    ? { id: "evidence_binding", status: "pass", expected: actual, actual }
+    : { id: "evidence_binding", status: "mismatch", reason: "evidence_digest_mismatch", expected: `sha256:${expected.hex}`, actual };
 }
