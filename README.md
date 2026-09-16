@@ -17,7 +17,7 @@ Primary maintainer: [@yandexuanxuan](https://github.com/yandexuanxuan)
 ## Current evidence
 
 - Public MIT repository; the audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) is recorded in the application snapshot. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
-- `pnpm test`: 68 Vitest tests passed locally; the profile-drift sentinel adds 15 passing Node tests. The repository's CI and scheduled drift-sentinel runs are green for the audited baseline head.
+- `pnpm test`: 79 Vitest tests pass locally; the profile-drift sentinel adds 15 passing Node tests. The repository's CI and scheduled drift-sentinel runs are green for the audited baseline head.
 - Companion [dogfood repository](https://github.com/yandexuanxuan/mcp-evidence-gate-dogfood) records an 11-case Action matrix and successful real Trivy, OSV, multi-receipt composition, and OCI identity workflows. These are project-owned cross-repository acceptance evidence, not third-party adoption.
 - Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/yandexuanxuan/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
 - The pinned `registry-pr-1404` compatibility profile is locally matched to the current open PR's contract; drift is reported as `NON_CONTRACT_CHANGE` and kept pinned until reviewed.
@@ -50,13 +50,29 @@ The pinned structural schema is stored at `src/profiles/registry-pr-1404/securit
 
 `evaluatePolicy()` produces a project-defined release decision without changing the input receipt. It keeps the scanner's `verdict` separate from the gate decision and uses deterministic precedence: `fail > inconclusive > warn > pass`. The verifier carries one immutable `evaluatedAt` clock into policy evaluation, so historical replay does not drift with wall-clock time. Warning admission is explicit: `permissive` allows warnings as `WARN`, while strict policies block them as a policy `FAIL` (`receipt_warnings_blocked`).
 
-Three built-in policies are included:
+Four built-in policies are included:
 
 - `permissive`: freshness is optional, no scope is required, and all three attestation values are allowed.
 - `strict-release-example`: a project-defined metadata policy that requires freshness, `package` plus `handler-validation`, `third-party-attested`, and a maximum scan age of seven days. It does not authenticate the attestation value.
 - `strict-evidence-example`: the strict example plus a required local evidence report digest binding.
+- `strict-scanner-completeness`: an explicit local `scanner-execution-completeness-policy-v1` extension. It requires a locally supplied, digest-bound evidence report and validates the abstract `project-defined-scanner-execution-v1` contract before a clean receipt can be admitted.
 
-The strict policies are project-defined examples, not MCP Registry requirements or a trust hierarchy. Policy is local and deterministic; it does not contact the Registry, download evidence, run scanners, or modify receipts.
+The strict policies are project-defined examples, not MCP Registry requirements or a trust hierarchy. Policy is local and deterministic; it does not contact the Registry, download evidence, run scanners, or modify receipts. Scanner completeness is checked only when the explicit strict policy is selected; `permissive` and the existing strict examples retain their legacy receipt behavior.
+
+### Scanner execution completeness
+
+`strict-scanner-completeness` keeps the decision layers separate:
+
+```text
+Registry receipt schema -> receipt_status
+artifact/evidence digests -> integrity_status
+project-defined policy -> policy_status
+Core release gate -> admission_status
+```
+
+The policy consumes only the abstract, versioned `scanner_execution` object in a local evidence report. It verifies the required fields, the `complete`/`incomplete`/`failed` status, component coverage, output existence and size, exit-state shape, and internal consistency. It does not interpret Trivy or OSV exit-code rules, scanner JSON modules, lockfiles, or package hooks. A self-consistent `incomplete` or `failed` execution therefore produces a policy `FAIL` even when the receipt says `clean`; a missing local report, missing completeness object, malformed object, or unverified digest cannot produce `PASS`. A digest mismatch makes the scanner status `unverified` and the admission `INCONCLUSIVE`.
+
+Machine-readable CLI output includes `integrity_status`, `receipt_status`, `policy_status`, `admission_status`, `scanner_execution_status`, and stable `reason_codes` (including `scanner_execution_missing`, `scanner_execution_malformed`, `scanner_execution_incomplete`, `scanner_execution_failed`, and `scanner_execution_contradictory`). The Action exposes the same layers through hyphenated outputs. See [`docs/design/scanner-execution-completeness.md`](docs/design/scanner-execution-completeness.md) for the contract and acceptance matrix.
 
 ## Multi-receipt composition
 
