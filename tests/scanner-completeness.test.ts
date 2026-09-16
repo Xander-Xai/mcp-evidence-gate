@@ -8,7 +8,12 @@ import {
   PERMISSIVE_POLICY,
   STRICT_SCANNER_COMPLETENESS_POLICY
 } from "../src/core/policy.js";
-import { sha256Bytes } from "../src/core/digest.js";
+import {
+  readEvidenceSnapshot,
+  sha256Bytes,
+  verifyEvidenceBindingBytes
+} from "../src/core/digest.js";
+import { verifyScannerExecutionBytes } from "../src/core/scanner-execution.js";
 import { verifyReceipt } from "../src/core/verify.js";
 import type { ReceiptInput } from "../src/core/types.js";
 
@@ -173,6 +178,7 @@ describe("strict scanner execution completeness policy", () => {
       expect(result.evaluation.decision).not.toBe("pass");
       expect(result.evaluation.reasonCodes).toContain(reasonCode);
       expect(result.evaluation.admissionStatus).not.toBe("pass");
+      expect(result.evaluation.scannerExecutionStatus).toBe(status);
     } finally {
       await result.cleanup();
     }
@@ -218,10 +224,74 @@ describe("strict scanner execution completeness policy", () => {
     const verification = await verifyReceipt(base, artifactPath, now);
     const evaluation = evaluatePolicy(base, verification, STRICT_SCANNER_COMPLETENESS_POLICY, now);
     expect(evaluation.decision).toBe("inconclusive");
+    expect(evaluation.scannerExecutionStatus).toBe("missing");
     expect(evaluation.reasonCodes).toEqual(expect.arrayContaining([
       "evidence_binding_required",
       "scanner_execution_missing"
     ]));
+  });
+
+  it("keeps an explicitly missing evidence file as missing under strict policy", async () => {
+    const base = JSON.parse(await readFile(resolve(root, "fixtures/valid/complete-clean.json"), "utf8")) as ReceiptInput;
+    const receipt = { ...base, evidence_digest: `sha256:${"0".repeat(64)}` };
+    const verification = await verifyReceipt(receipt, artifactPath, now, {
+      evidencePath: resolve(root, "fixtures/does-not-exist-evidence.json"),
+      requireScannerExecutionCompleteness: true
+    });
+    const evaluation = evaluatePolicy(receipt, verification, STRICT_SCANNER_COMPLETENESS_POLICY, now);
+    expect(evaluation.scannerExecutionStatus).toBe("missing");
+    expect(evaluation.reasonCodes).toEqual(expect.arrayContaining([
+      "evidence_file_missing",
+      "scanner_execution_missing"
+    ]));
+    expect(evaluation.reasonCodes).not.toContain("scanner_execution_unverified");
+  });
+
+  it("keeps present but digest-mismatched scanner bytes unverified", async () => {
+    const result = await materialize(completeExecution());
+    try {
+      const receipt = { ...result.receipt, evidence_digest: `sha256:${"0".repeat(64)}` };
+      const verification = await verifyReceipt(receipt, artifactPath, now, {
+        evidencePath: result.evidencePath,
+        requireScannerExecutionCompleteness: true
+      });
+      const evaluation = evaluatePolicy(receipt, verification, STRICT_SCANNER_COMPLETENESS_POLICY, now);
+      expect(evaluation.scannerExecutionStatus).toBe("unverified");
+      expect(evaluation.reasonCodes).toContain("scanner_execution_unverified");
+      expect(evaluation.reasonCodes).toContain("evidence_digest_mismatch");
+    } finally {
+      await result.cleanup();
+    }
+  });
+
+  it("binds digest and scanner semantics to one detached evidence snapshot", async () => {
+    const incomplete = {
+      ...completeExecution(),
+      completeness_status: "incomplete",
+      required_work_completed: false,
+      result_semantics_consistent: false,
+      completed_components: ["scanner_process", "scanner_output"],
+      failed_components: ["result_sections"]
+    };
+    const bytesA = Buffer.from(`${JSON.stringify(evidenceFor(incomplete))}\n`, "utf8");
+    const bytesB = Buffer.from(`${JSON.stringify(evidenceFor(completeExecution()))}\n`, "utf8");
+    const sourceBytes = Uint8Array.from(bytesA);
+    let reads = 0;
+    const evidence = await readEvidenceSnapshot("virtual-evidence.json", async () => {
+      reads += 1;
+      return reads === 1 ? sourceBytes : bytesB;
+    });
+    sourceBytes.fill(0);
+
+    const binding = verifyEvidenceBindingBytes(sha256Bytes(bytesA), evidence);
+    const scanner = verifyScannerExecutionBytes(evidence);
+    expect(reads).toBe(1);
+    expect(binding).toMatchObject({ id: "evidence_binding", status: "pass" });
+    expect(scanner).toMatchObject({
+      id: "scanner_execution",
+      status: "invalid",
+      reason: "scanner_execution_incomplete"
+    });
   });
 
   it("exposes integrity, receipt, policy, admission, and reason layers in CLI JSON", async () => {

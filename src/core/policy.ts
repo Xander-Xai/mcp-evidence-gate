@@ -288,7 +288,12 @@ export function evaluatePolicy(
     const evidenceTrusted = evidence?.status === "pass";
     const integrityTrusted = artifact?.status === "pass" && evidenceTrusted;
     scannerExecutionStatus = scannerStatusFor(scanner, integrityTrusted);
-    if (!scanner) {
+    // A missing scanner finding is a missing execution report, not an
+    // unverified semantic claim. Keep this distinction even when the evidence
+    // binding is absent or unreadable; "unverified" is reserved for a
+    // present scanner finding whose bytes are not trusted by the bindings.
+    if (!scanner || scanner.status === "not_present" || scanner.reason === "scanner_execution_missing") {
+      scannerExecutionStatus = "missing";
       add(
         "scanner_execution_missing",
         integrityTrusted ? "fail" : "inconclusive",

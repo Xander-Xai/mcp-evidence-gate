@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readEvidenceSnapshot, type EvidenceSnapshotRead } from "./digest.js";
 import type { Finding } from "./types.js";
 
 /** Versioned, producer-owned execution evidence consumed by local policy. */
@@ -149,26 +149,19 @@ function validateExecution(execution: JsonObject): Finding {
  * called when an explicit local policy opts into the contract; legacy receipt
  * verification never reads or requires this project-defined extension.
  */
-export async function verifyScannerExecution(evidencePath?: string): Promise<Finding> {
-  if (!evidencePath) {
-    return { id: "scanner_execution", status: "not_present", reason: "scanner_execution_missing" };
-  }
-
-  let text: string;
-  try {
-    text = await readFile(evidencePath, "utf8");
-  } catch {
+export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead): Finding {
+  if (!evidence.snapshot) {
     return {
       id: "scanner_execution",
       status: "not_present",
       reason: "scanner_execution_missing",
-      details: ["evidence_file_missing"]
+      ...(evidence.error ? { details: [evidence.error] } : {})
     };
   }
 
   let value: unknown;
   try {
-    value = JSON.parse(text) as unknown;
+    value = JSON.parse(Buffer.from(evidence.snapshot.bytes).toString("utf8")) as unknown;
   } catch {
     return malformed(["evidence_json"]);
   }
@@ -178,4 +171,13 @@ export async function verifyScannerExecution(evidencePath?: string): Promise<Fin
   }
   if (!isObject(value.scanner_execution)) return malformed(["scanner_execution_object"]);
   return validateExecution(value.scanner_execution);
+}
+
+/**
+ * Read and validate producer-owned scanner execution evidence. This legacy
+ * path remains available to direct callers; receipt verification uses the
+ * shared snapshot API so digest and semantic checks consume identical bytes.
+ */
+export async function verifyScannerExecution(evidencePath?: string): Promise<Finding> {
+  return verifyScannerExecutionBytes(await readEvidenceSnapshot(evidencePath));
 }

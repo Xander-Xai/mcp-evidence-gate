@@ -27930,8 +27930,103 @@ var REGISTRY_PR_1404_PROFILE = {
   attestations: ["publisher-asserted", "registry-attested", "third-party-attested"]
 };
 
-// src/core/scanner-execution.ts
+// src/core/digest.ts
+var import_node_crypto = require("node:crypto");
+var import_node_fs = require("node:fs");
 var import_promises = require("node:fs/promises");
+var DIGEST_PATTERN = /^([a-z0-9]+):([a-f0-9]+)$/;
+var DigestError = class extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+};
+function parseDigest(value) {
+  if (typeof value !== "string") {
+    throw new DigestError("malformed_digest");
+  }
+  const match = DIGEST_PATTERN.exec(value);
+  if (!match) {
+    throw new DigestError("malformed_digest");
+  }
+  if (match[1] !== REGISTRY_PR_1404_PROFILE.digestAlgorithm) {
+    throw new DigestError("unsupported_digest_algorithm");
+  }
+  if (match[2].length !== 64) {
+    throw new DigestError("malformed_digest");
+  }
+  return { algorithm: match[1], hex: match[2] };
+}
+function sha256Bytes(bytes) {
+  return `sha256:${(0, import_node_crypto.createHash)("sha256").update(bytes).digest("hex")}`;
+}
+var readEvidenceBytes = async (path) => new Uint8Array(await (0, import_promises.readFile)(path));
+async function readEvidenceSnapshot(evidencePath, reader = readEvidenceBytes) {
+  if (!evidencePath)
+    return { provided: false };
+  try {
+    const bytes = Uint8Array.from(await reader(evidencePath));
+    return {
+      provided: true,
+      snapshot: Object.freeze({ path: evidencePath, bytes })
+    };
+  } catch {
+    return { provided: true, error: "evidence_file_missing" };
+  }
+}
+async function sha256Artifact(path) {
+  const hash = (0, import_node_crypto.createHash)("sha256");
+  for await (const chunk of (0, import_node_fs.createReadStream)(path)) {
+    hash.update(chunk);
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+async function verifyArtifactBinding(receiptDigest, artifactPath) {
+  let expected;
+  try {
+    expected = parseDigest(receiptDigest);
+  } catch (error) {
+    const code = error instanceof DigestError ? error.code : "malformed_digest";
+    return {
+      id: "artifact_binding",
+      status: code === "unsupported_digest_algorithm" ? "unsupported" : "invalid",
+      reason: code
+    };
+  }
+  const actual = await sha256Artifact(artifactPath);
+  return actual === `sha256:${expected.hex}` ? { id: "artifact_binding", status: "pass", expected: actual, actual } : {
+    id: "artifact_binding",
+    status: "mismatch",
+    reason: "artifact_digest_mismatch",
+    expected: `sha256:${expected.hex}`,
+    actual
+  };
+}
+function verifyEvidenceBindingBytes(receiptDigest, evidence) {
+  let expected;
+  try {
+    expected = parseDigest(receiptDigest);
+  } catch (error) {
+    const code = error instanceof DigestError ? error.code : "malformed_digest";
+    if (code === "unsupported_digest_algorithm") {
+      if (!evidence.provided) {
+        return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
+      }
+      return { id: "evidence_binding", status: "unsupported", reason: code };
+    }
+    return { id: "evidence_binding", status: "invalid", reason: code };
+  }
+  if (!evidence.provided) {
+    return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
+  }
+  if (!evidence.snapshot) {
+    return { id: "evidence_binding", status: "not_present", reason: evidence.error ?? "evidence_file_missing" };
+  }
+  const actual = sha256Bytes(evidence.snapshot.bytes);
+  return actual === `sha256:${expected.hex}` ? { id: "evidence_binding", status: "pass", expected: actual, actual } : { id: "evidence_binding", status: "mismatch", reason: "evidence_digest_mismatch", expected: `sha256:${expected.hex}`, actual };
+}
+
+// src/core/scanner-execution.ts
 var SCANNER_EXECUTION_SCHEMA_VERSION = "project-defined-scanner-execution-v1";
 var SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v1";
 var SCANNER_EXECUTION_STATUSES = ["complete", "incomplete", "failed"];
@@ -28021,24 +28116,18 @@ function validateExecution(execution) {
     details: [execution.completeness_reason]
   };
 }
-async function verifyScannerExecution(evidencePath) {
-  if (!evidencePath) {
-    return { id: "scanner_execution", status: "not_present", reason: "scanner_execution_missing" };
-  }
-  let text;
-  try {
-    text = await (0, import_promises.readFile)(evidencePath, "utf8");
-  } catch {
+function verifyScannerExecutionBytes(evidence) {
+  if (!evidence.snapshot) {
     return {
       id: "scanner_execution",
       status: "not_present",
       reason: "scanner_execution_missing",
-      details: ["evidence_file_missing"]
+      ...evidence.error ? { details: [evidence.error] } : {}
     };
   }
   let value;
   try {
-    value = JSON.parse(text);
+    value = JSON.parse(Buffer.from(evidence.snapshot.bytes).toString("utf8"));
   } catch {
     return malformed(["evidence_json"]);
   }
@@ -28326,7 +28415,8 @@ function evaluatePolicy(receipt, verification, policy, _now) {
     const evidenceTrusted = evidence?.status === "pass";
     const integrityTrusted = artifact?.status === "pass" && evidenceTrusted;
     scannerExecutionStatus = scannerStatusFor(scanner, integrityTrusted);
-    if (!scanner) {
+    if (!scanner || scanner.status === "not_present" || scanner.reason === "scanner_execution_missing") {
+      scannerExecutionStatus = "missing";
       add(
         "scanner_execution_missing",
         integrityTrusted ? "fail" : "inconclusive",
@@ -28371,84 +28461,6 @@ function evaluatePolicy(receipt, verification, policy, _now) {
     add("receipt_inconclusive", "inconclusive", "Receipt verdict is inconclusive.");
   }
   return finish(receipt, verification, policy, reasons, scannerExecutionStatus, integrityStatus, receiptStatus);
-}
-
-// src/core/digest.ts
-var import_node_crypto = require("node:crypto");
-var import_node_fs = require("node:fs");
-var DIGEST_PATTERN = /^([a-z0-9]+):([a-f0-9]+)$/;
-var DigestError = class extends Error {
-  constructor(code) {
-    super(code);
-    this.code = code;
-  }
-};
-function parseDigest(value) {
-  if (typeof value !== "string") {
-    throw new DigestError("malformed_digest");
-  }
-  const match = DIGEST_PATTERN.exec(value);
-  if (!match) {
-    throw new DigestError("malformed_digest");
-  }
-  if (match[1] !== REGISTRY_PR_1404_PROFILE.digestAlgorithm) {
-    throw new DigestError("unsupported_digest_algorithm");
-  }
-  if (match[2].length !== 64) {
-    throw new DigestError("malformed_digest");
-  }
-  return { algorithm: match[1], hex: match[2] };
-}
-async function sha256Artifact(path) {
-  const hash = (0, import_node_crypto.createHash)("sha256");
-  for await (const chunk of (0, import_node_fs.createReadStream)(path)) {
-    hash.update(chunk);
-  }
-  return `sha256:${hash.digest("hex")}`;
-}
-async function verifyArtifactBinding(receiptDigest, artifactPath) {
-  let expected;
-  try {
-    expected = parseDigest(receiptDigest);
-  } catch (error) {
-    const code = error instanceof DigestError ? error.code : "malformed_digest";
-    return {
-      id: "artifact_binding",
-      status: code === "unsupported_digest_algorithm" ? "unsupported" : "invalid",
-      reason: code
-    };
-  }
-  const actual = await sha256Artifact(artifactPath);
-  return actual === `sha256:${expected.hex}` ? { id: "artifact_binding", status: "pass", expected: actual, actual } : {
-    id: "artifact_binding",
-    status: "mismatch",
-    reason: "artifact_digest_mismatch",
-    expected: `sha256:${expected.hex}`,
-    actual
-  };
-}
-async function verifyEvidenceBinding(receiptDigest, evidencePath) {
-  let expected;
-  try {
-    expected = parseDigest(receiptDigest);
-  } catch (error) {
-    const code = error instanceof DigestError ? error.code : "malformed_digest";
-    if (code === "unsupported_digest_algorithm") {
-      if (!evidencePath) {
-        return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
-      }
-      return { id: "evidence_binding", status: "unsupported", reason: code };
-    }
-    return { id: "evidence_binding", status: "invalid", reason: code };
-  }
-  if (!evidencePath)
-    return { id: "evidence_binding", status: "not_present", reason: "evidence_file_not_provided" };
-  try {
-    const actual = await sha256Artifact(evidencePath);
-    return actual === `sha256:${expected.hex}` ? { id: "evidence_binding", status: "pass", expected: actual, actual } : { id: "evidence_binding", status: "mismatch", reason: "evidence_digest_mismatch", expected: `sha256:${expected.hex}`, actual };
-  } catch {
-    return { id: "evidence_binding", status: "not_present", reason: "evidence_file_missing" };
-  }
 }
 
 // src/core/inconclusive.ts
@@ -28563,6 +28575,7 @@ function validateReceiptStructure(receipt) {
 
 // src/core/verify.ts
 async function verifyReceiptEvidence(receipt, artifactPath, now, freshnessOptions = {}) {
+  const evidence = await readEvidenceSnapshot(freshnessOptions.evidencePath);
   return {
     profile: REGISTRY_PR_1404_PROFILE.id,
     evaluatedAt: now.toISOString(),
@@ -28575,8 +28588,8 @@ async function verifyReceiptEvidence(receipt, artifactPath, now, freshnessOption
       }),
       validateScanScope(receipt.scan_scope),
       validateInconclusiveReason(receipt.verdict, receipt.inconclusive_reason),
-      ...receipt.evidence_digest !== void 0 || freshnessOptions.evidencePath ? [await verifyEvidenceBinding(receipt.evidence_digest, freshnessOptions.evidencePath)] : [],
-      ...freshnessOptions.requireScannerExecutionCompleteness ? [await verifyScannerExecution(freshnessOptions.evidencePath)] : []
+      ...receipt.evidence_digest !== void 0 || freshnessOptions.evidencePath ? [verifyEvidenceBindingBytes(receipt.evidence_digest, evidence)] : [],
+      ...freshnessOptions.requireScannerExecutionCompleteness ? [verifyScannerExecutionBytes(evidence)] : []
     ]
   };
 }
