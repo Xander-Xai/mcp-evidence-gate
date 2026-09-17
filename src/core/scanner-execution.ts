@@ -208,6 +208,10 @@ export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead, rece
   if (!isObject(value.scanner_execution)) return malformed(["scanner_execution_object"]);
   const executionContract = isObject(value.scanner_execution) && typeof value.scanner_execution.scanner_contract === "string"
     ? value.scanner_execution.scanner_contract : undefined;
+  const expected = CONSUMER_SCANNER_CONTRACTS.find((entry) => entry.scannerContract === executionContract);
+  if (expected && receipt?.scanner !== undefined && receipt.scanner !== expected.receiptScanner) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_mismatch", details: [expected.receiptScanner, String(receipt.scanner)] };
+  }
   // v2 contracts bind scanner identity; retain the historical abstract fixture's
   // permissive shape solely for backwards-compatible tests.
   if (executionContract !== "abstract-scanner-json-v1" && (receipt?.scanner !== undefined || receipt?.scanner_version !== undefined)) {

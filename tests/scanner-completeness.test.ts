@@ -123,7 +123,7 @@ async function evaluateCase(
 
 describe("strict scanner execution completeness policy", () => {
   it("uses consumer-owned contracts, identity binding, and exit-code policy", async () => {
-    const execution = {
+    const execution: Record<string, unknown> = {
       ...completeExecution(),
       scanner_contract: "trivy-fs-json-v1",
       required_components: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"],

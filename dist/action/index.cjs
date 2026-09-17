@@ -28162,6 +28162,10 @@ function verifyScannerExecutionBytes(evidence, receipt) {
   if (!isObject(value.scanner_execution))
     return malformed(["scanner_execution_object"]);
   const executionContract = isObject(value.scanner_execution) && typeof value.scanner_execution.scanner_contract === "string" ? value.scanner_execution.scanner_contract : void 0;
+  const expected = CONSUMER_SCANNER_CONTRACTS.find((entry) => entry.scannerContract === executionContract);
+  if (expected && receipt?.scanner !== void 0 && receipt.scanner !== expected.receiptScanner) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_mismatch", details: [expected.receiptScanner, String(receipt.scanner)] };
+  }
   if (executionContract !== "abstract-scanner-json-v1" && (receipt?.scanner !== void 0 || receipt?.scanner_version !== void 0)) {
     const scanner = value.scanner;
     if (!isObject(scanner) || scanner.name !== receipt?.scanner) {
