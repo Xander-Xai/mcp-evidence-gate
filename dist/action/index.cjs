@@ -28359,11 +28359,9 @@ function scannerDetail(status) {
     case "missing":
       return "A bound evidence report with scanner execution completeness is required by this policy.";
     case "malformed":
-      return "The scanner execution evidence does not conform to its project-defined contract.";
+      return "The scanner execution evidence violates the consumer-owned scanner contract.";
     case "contradictory":
       return "The scanner execution status contradicts its component and result fields.";
-    case "malformed":
-      return "The scanner execution evidence violates the consumer-owned scanner contract.";
     case "unverified":
       return "Scanner execution semantics cannot be trusted until evidence binding is verified.";
     default:
