@@ -1,9 +1,9 @@
 import { readEvidenceSnapshot, type EvidenceSnapshotRead } from "./digest.js";
 import type { Finding } from "./types.js";
 
-/** Versioned, producer-owned execution evidence consumed by local policy. */
+/** Versioned execution facts supplied by an untrusted producer. */
 export const SCANNER_EXECUTION_SCHEMA_VERSION = "project-defined-scanner-execution-v1";
-export const SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v1";
+export const SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v2";
 
 export const SCANNER_EXECUTION_STATUSES = ["complete", "incomplete", "failed"] as const;
 export type ScannerExecutionContractStatus = (typeof SCANNER_EXECUTION_STATUSES)[number];
@@ -17,6 +17,22 @@ export type ScannerExecutionOutputStatus =
   | "not_evaluated";
 
 type JsonObject = Record<string, unknown>;
+
+export interface ScannerExecutionContractExpectation {
+  receiptScanner: string;
+  scannerContract: string;
+  requiredComponents: readonly string[];
+  allowedExitCodes: readonly number[];
+}
+
+/** Consumer-owned policy registry. Producer evidence is never authoritative for these values. */
+export const CONSUMER_SCANNER_CONTRACTS: readonly ScannerExecutionContractExpectation[] = [
+  { receiptScanner: "trivy", scannerContract: "trivy-fs-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
+  { receiptScanner: "osv-scanner", scannerContract: "osv-scanner-v2-lockfile-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "source_binding", "result_semantics"], allowedExitCodes: [0, 1] },
+  { receiptScanner: "trivy", scannerContract: "trivy-oci-image-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
+  // Compatibility for the pre-v2 fixture contract; real scanner contracts above remain strict.
+  { receiptScanner: "example-scanner", scannerContract: "abstract-scanner-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections"], allowedExitCodes: [0] }
+] as const;
 
 const REQUIRED_BOOLEAN_FIELDS = [
   "invocation_started",
@@ -40,7 +56,7 @@ function malformed(details: string[]): Finding {
   return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_malformed", details };
 }
 
-function validateExecution(execution: JsonObject): Finding {
+function validateExecution(execution: JsonObject, receipt?: { scanner?: unknown; scanner_version?: unknown }): Finding {
   if (execution.schema_version !== SCANNER_EXECUTION_SCHEMA_VERSION) {
     return malformed(["schema_version"]);
   }
@@ -79,6 +95,19 @@ function validateExecution(execution: JsonObject): Finding {
     return malformed(["completed_components", "failed_components"]);
   }
 
+  const contract = CONSUMER_SCANNER_CONTRACTS.find((entry) => entry.scannerContract === execution.scanner_contract);
+  if (!contract) return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_unsupported", details: [String(execution.scanner_contract)] };
+  if (receipt && receipt.scanner !== undefined && receipt.scanner !== contract.receiptScanner) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_mismatch", details: [contract.receiptScanner, String(receipt.scanner)] };
+  }
+  if (receipt && receipt.scanner_version !== undefined && typeof receipt.scanner_version !== "string") {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: ["receipt_scanner_version"] };
+  }
+  if (contract.scannerContract !== "abstract-scanner-json-v1" &&
+      (typeof receipt?.scanner_version !== "string" || receipt.scanner_version.length === 0)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["receipt_scanner_version"] };
+  }
+
   const status = execution.completeness_status;
   if (!SCANNER_EXECUTION_STATUSES.includes(status as ScannerExecutionContractStatus)) {
     return malformed(["completeness_status"]);
@@ -96,6 +125,11 @@ function validateExecution(execution: JsonObject): Finding {
       details: ["component_marked_completed_and_failed", ...overlappingComponents]
     };
   }
+  const requiredSetMatches = required.length === contract.requiredComponents.length &&
+    contract.requiredComponents.every((component) => required.includes(component));
+  if (!requiredSetMatches) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_required_components_mismatch", details: [...contract.requiredComponents] };
+  }
   if (status !== "complete" && execution.required_work_completed === true) {
     return {
       id: "scanner_execution",
@@ -103,6 +137,9 @@ function validateExecution(execution: JsonObject): Finding {
       reason: "scanner_execution_contradictory",
       details: ["non_complete_status_with_required_work_completed"]
     };
+  }
+  if (status === "complete" && typeof execution.exit_code === "number" && !contract.allowedExitCodes.includes(execution.exit_code)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_exit_code_invalid", details: contract.allowedExitCodes.map(String) };
   }
   const completeClaimProven =
     execution.invocation_started === true &&
@@ -120,6 +157,9 @@ function validateExecution(execution: JsonObject): Finding {
     execution.output_size > 0 &&
     failed.length === 0 &&
     required.every((component) => completed.includes(component)) &&
+    contract.requiredComponents.every((component) => required.includes(component) && completed.includes(component)) &&
+    required.length === contract.requiredComponents.length &&
+    contract.allowedExitCodes.includes(execution.exit_code as number) &&
     overlappingComponents.length === 0;
 
   if ((status === "complete" && !completeClaimProven) || (status !== "complete" && completeClaimProven)) {
@@ -149,7 +189,7 @@ function validateExecution(execution: JsonObject): Finding {
  * called when an explicit local policy opts into the contract; legacy receipt
  * verification never reads or requires this project-defined extension.
  */
-export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead): Finding {
+export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead, receipt?: { scanner?: unknown; scanner_version?: unknown }): Finding {
   if (!evidence.snapshot) {
     return {
       id: "scanner_execution",
@@ -170,7 +210,27 @@ export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead): Fin
     return { id: "scanner_execution", status: "not_present", reason: "scanner_execution_missing" };
   }
   if (!isObject(value.scanner_execution)) return malformed(["scanner_execution_object"]);
-  return validateExecution(value.scanner_execution);
+  const executionContract = isObject(value.scanner_execution) && typeof value.scanner_execution.scanner_contract === "string"
+    ? value.scanner_execution.scanner_contract : undefined;
+  const expected = CONSUMER_SCANNER_CONTRACTS.find((entry) => entry.scannerContract === executionContract);
+  if (expected && receipt?.scanner !== undefined && receipt.scanner !== expected.receiptScanner) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_mismatch", details: [expected.receiptScanner, String(receipt.scanner)] };
+  }
+  // v2 contracts bind scanner identity; retain the historical abstract fixture's
+  // permissive shape solely for backwards-compatible tests.
+  if (executionContract !== "abstract-scanner-json-v1" && (receipt?.scanner !== undefined || receipt?.scanner_version !== undefined)) {
+    const scanner = value.scanner;
+    if (!isObject(scanner) || scanner.name !== receipt?.scanner) {
+      return { id: "scanner_execution", status: "invalid", reason: "scanner_identity_mismatch", details: [String(receipt?.scanner), isObject(scanner) ? String(scanner.name) : "missing"] };
+    }
+    if (executionContract !== "abstract-scanner-json-v1" && (typeof scanner.version !== "string" || scanner.version.length === 0)) {
+      return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["evidence_scanner_version"] };
+    }
+    if (receipt?.scanner_version !== undefined && scanner.version !== receipt.scanner_version) {
+      return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: [String(receipt.scanner_version), String(scanner.version)] };
+    }
+  }
+  return validateExecution(value.scanner_execution, receipt);
 }
 
 /**

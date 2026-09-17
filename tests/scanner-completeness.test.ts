@@ -122,6 +122,31 @@ async function evaluateCase(
 }
 
 describe("strict scanner execution completeness policy", () => {
+  it("uses consumer-owned contracts, identity binding, and exit-code policy", async () => {
+    const execution: Record<string, unknown> = {
+      ...completeExecution(),
+      scanner_contract: "trivy-fs-json-v1",
+      required_components: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"],
+      completed_components: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"]
+    };
+    const bytes = Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution }));
+    const snapshot = await readEvidenceSnapshot("known.json", async () => bytes);
+    expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ status: "pass" });
+    expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy" })).toMatchObject({ reason: "scanner_version_missing" });
+    const missingEvidenceVersion = await readEvidenceSnapshot("missing-version.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(missingEvidenceVersion, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_version_missing" });
+    expect(verifyScannerExecutionBytes(snapshot, { scanner: "osv-scanner", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_contract_mismatch" });
+    execution.exit_code = 999;
+    const illegal = await readEvidenceSnapshot("illegal.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(illegal, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_exit_code_invalid" });
+    execution.completeness_status = "failed";
+    execution.required_work_completed = false;
+    execution.process_completed = false;
+    execution.exit_code = 1;
+    const failed = await readEvidenceSnapshot("failed.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(failed, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_failed" });
+  });
+
   it("records the legacy permissive false-clean gap while strict policy blocks it", async () => {
     const materialized = await materialize({
       ...completeExecution(),
