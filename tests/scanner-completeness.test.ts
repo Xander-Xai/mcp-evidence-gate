@@ -139,6 +139,12 @@ describe("strict scanner execution completeness policy", () => {
     execution.exit_code = 999;
     const illegal = await readEvidenceSnapshot("illegal.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution })));
     expect(verifyScannerExecutionBytes(illegal, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_exit_code_invalid" });
+    execution.completeness_status = "failed";
+    execution.required_work_completed = false;
+    execution.process_completed = false;
+    execution.exit_code = 1;
+    const failed = await readEvidenceSnapshot("failed.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(failed, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_failed" });
   });
 
   it("records the legacy permissive false-clean gap while strict policy blocks it", async () => {
