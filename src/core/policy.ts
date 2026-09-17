@@ -155,6 +155,8 @@ function scannerStatusFor(
   if (scanner.reason === "scanner_execution_failed") return "failed";
   if (scanner.reason === "scanner_execution_malformed") return "malformed";
   if (scanner.reason === "scanner_execution_contradictory") return "contradictory";
+  if (scanner.reason === "scanner_execution_required_components_mismatch") return "contradictory";
+  if (scanner.reason === "scanner_execution_contract_unsupported" || scanner.reason === "scanner_execution_contract_mismatch" || scanner.reason === "scanner_identity_mismatch" || scanner.reason === "scanner_version_mismatch" || scanner.reason === "scanner_execution_exit_code_invalid") return "malformed";
   if (scanner.reason === "scanner_execution_missing" || scanner.status === "not_present") return "missing";
   return "unverified";
 }
@@ -164,7 +166,7 @@ function scannerDetail(status: ScannerExecutionOutputStatus): string {
     case "incomplete": return "The evidence report states that required scanner work was not completed.";
     case "failed": return "The evidence report states that the scanner execution failed.";
     case "missing": return "A bound evidence report with scanner execution completeness is required by this policy.";
-    case "malformed": return "The scanner execution evidence does not conform to its project-defined contract.";
+    case "malformed": return "The scanner execution evidence violates the consumer-owned scanner contract.";
     case "contradictory": return "The scanner execution status contradicts its component and result fields.";
     case "unverified": return "Scanner execution semantics cannot be trusted until evidence binding is verified.";
     default: return "Scanner execution completeness is not proven.";

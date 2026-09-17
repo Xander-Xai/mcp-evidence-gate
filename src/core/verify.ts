@@ -43,7 +43,7 @@ export async function verifyReceiptEvidence(
       ...(receipt.evidence_digest !== undefined || freshnessOptions.evidencePath
         ? [verifyEvidenceBindingBytes(receipt.evidence_digest, evidence)] : []),
       ...(freshnessOptions.requireScannerExecutionCompleteness
-        ? [verifyScannerExecutionBytes(evidence)]
+        ? [verifyScannerExecutionBytes(evidence, receipt)]
         : [])
     ]
   };

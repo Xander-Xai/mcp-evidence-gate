@@ -1,6 +1,6 @@
 # Scanner execution completeness — local admission extension
 
-Status: experimental `scanner-execution-completeness-policy-v1`.
+Status: experimental `scanner-execution-completeness-policy-v2`.
 
 This document describes a consumer-side policy extension. It does not change
 the MCP Registry SecurityScanReceipt schema or claim that Registry PR #1404
@@ -27,7 +27,16 @@ validity or byte integrity.
 Select `strict-scanner-completeness` through the existing CLI `--policy` flag,
 the Action `policy` input, or the API `STRICT_SCANNER_COMPLETENESS_POLICY`
 constant. The policy version is
-`scanner-execution-completeness-policy-v1`.
+`scanner-execution-completeness-policy-v2`.
+
+Producer reports observed execution facts; Core owns the acceptance contract
+and exact required component set. A producer cannot become complete by
+shrinking its own `required_components`. Supported contracts are Trivy FS
+(`trivy-fs-json-v1`, scanner `trivy`, exit `0`), OSV lockfile
+(`osv-scanner-v2-lockfile-json-v1`, scanner `osv-scanner`, exits `0`/`1`), and
+Trivy OCI (`trivy-oci-image-json-v1`, scanner `trivy`, exit `0`). Receipt
+scanner/name and scanner version are bound to the evidence snapshot. Unknown
+contracts cannot pass.
 
 The policy requires `--evidence` (or an Action/API evidence path) and a receipt
 `evidence_digest` that matches the exact local evidence bytes. It then reads
