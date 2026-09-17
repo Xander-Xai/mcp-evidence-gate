@@ -81,7 +81,7 @@ export const STRICT_EVIDENCE_EXAMPLE_POLICY: PolicyConfig = {
 };
 
 /**
- * Local admission policy for producer-owned scanner execution evidence.
+ * Local admission policy for consumer-owned scanner execution contracts.
  * Registry PR #1404 remains unchanged; this policy only opts a consumer into
  * interpreting the versioned evidence extension.
  */

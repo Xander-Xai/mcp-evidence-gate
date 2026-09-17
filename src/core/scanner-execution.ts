@@ -1,7 +1,7 @@
 import { readEvidenceSnapshot, type EvidenceSnapshotRead } from "./digest.js";
 import type { Finding } from "./types.js";
 
-/** Versioned, producer-owned execution evidence consumed by local policy. */
+/** Versioned execution facts supplied by an untrusted producer. */
 export const SCANNER_EXECUTION_SCHEMA_VERSION = "project-defined-scanner-execution-v1";
 export const SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v2";
 
