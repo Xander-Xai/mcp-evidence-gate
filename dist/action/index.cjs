@@ -28088,6 +28088,9 @@ function validateExecution(execution, receipt) {
   if (receipt && receipt.scanner_version !== void 0 && typeof receipt.scanner_version !== "string") {
     return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: ["receipt_scanner_version"] };
   }
+  if (contract.scannerContract !== "abstract-scanner-json-v1" && (typeof receipt?.scanner_version !== "string" || receipt.scanner_version.length === 0)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["receipt_scanner_version"] };
+  }
   const status = execution.completeness_status;
   if (!SCANNER_EXECUTION_STATUSES.includes(status)) {
     return malformed(["completeness_status"]);
@@ -28108,9 +28111,6 @@ function validateExecution(execution, receipt) {
   if (!requiredSetMatches) {
     return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_required_components_mismatch", details: [...contract.requiredComponents] };
   }
-  if (typeof execution.exit_code === "number" && !contract.allowedExitCodes.includes(execution.exit_code)) {
-    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_exit_code_invalid", details: contract.allowedExitCodes.map(String) };
-  }
   if (status !== "complete" && execution.required_work_completed === true) {
     return {
       id: "scanner_execution",
@@ -28118,6 +28118,9 @@ function validateExecution(execution, receipt) {
       reason: "scanner_execution_contradictory",
       details: ["non_complete_status_with_required_work_completed"]
     };
+  }
+  if (status === "complete" && typeof execution.exit_code === "number" && !contract.allowedExitCodes.includes(execution.exit_code)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_exit_code_invalid", details: contract.allowedExitCodes.map(String) };
   }
   const completeClaimProven = execution.invocation_started === true && execution.process_completed === true && execution.exit_state_valid === true && execution.output_present === true && execution.output_exists === true && execution.output_parseable === true && execution.required_work_completed === true && execution.result_semantics_consistent === true && typeof execution.exit_code === "number" && Number.isInteger(execution.exit_code) && typeof execution.output_size === "number" && Number.isInteger(execution.output_size) && execution.output_size > 0 && failed.length === 0 && required.every((component) => completed.includes(component)) && contract.requiredComponents.every((component) => required.includes(component) && completed.includes(component)) && required.length === contract.requiredComponents.length && contract.allowedExitCodes.includes(execution.exit_code) && overlappingComponents.length === 0;
   if (status === "complete" && !completeClaimProven || status !== "complete" && completeClaimProven) {
@@ -28170,6 +28173,9 @@ function verifyScannerExecutionBytes(evidence, receipt) {
     const scanner = value.scanner;
     if (!isObject(scanner) || scanner.name !== receipt?.scanner) {
       return { id: "scanner_execution", status: "invalid", reason: "scanner_identity_mismatch", details: [String(receipt?.scanner), isObject(scanner) ? String(scanner.name) : "missing"] };
+    }
+    if (executionContract !== "abstract-scanner-json-v1" && (typeof scanner.version !== "string" || scanner.version.length === 0)) {
+      return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["evidence_scanner_version"] };
     }
     if (receipt?.scanner_version !== void 0 && scanner.version !== receipt.scanner_version) {
       return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: [String(receipt.scanner_version), String(scanner.version)] };

@@ -132,6 +132,9 @@ describe("strict scanner execution completeness policy", () => {
     const bytes = Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution }));
     const snapshot = await readEvidenceSnapshot("known.json", async () => bytes);
     expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ status: "pass" });
+    expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy" })).toMatchObject({ reason: "scanner_version_missing" });
+    const missingEvidenceVersion = await readEvidenceSnapshot("missing-version.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(missingEvidenceVersion, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_version_missing" });
     expect(verifyScannerExecutionBytes(snapshot, { scanner: "osv-scanner", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_contract_mismatch" });
     execution.exit_code = 999;
     const illegal = await readEvidenceSnapshot("illegal.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.1.0" }, scanner_execution: execution })));

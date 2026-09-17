@@ -103,6 +103,10 @@ function validateExecution(execution: JsonObject, receipt?: { scanner?: unknown;
   if (receipt && receipt.scanner_version !== undefined && typeof receipt.scanner_version !== "string") {
     return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: ["receipt_scanner_version"] };
   }
+  if (contract.scannerContract !== "abstract-scanner-json-v1" &&
+      (typeof receipt?.scanner_version !== "string" || receipt.scanner_version.length === 0)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["receipt_scanner_version"] };
+  }
 
   const status = execution.completeness_status;
   if (!SCANNER_EXECUTION_STATUSES.includes(status as ScannerExecutionContractStatus)) {
@@ -126,9 +130,6 @@ function validateExecution(execution: JsonObject, receipt?: { scanner?: unknown;
   if (!requiredSetMatches) {
     return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_required_components_mismatch", details: [...contract.requiredComponents] };
   }
-  if (typeof execution.exit_code === "number" && !contract.allowedExitCodes.includes(execution.exit_code)) {
-    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_exit_code_invalid", details: contract.allowedExitCodes.map(String) };
-  }
   if (status !== "complete" && execution.required_work_completed === true) {
     return {
       id: "scanner_execution",
@@ -136,6 +137,9 @@ function validateExecution(execution: JsonObject, receipt?: { scanner?: unknown;
       reason: "scanner_execution_contradictory",
       details: ["non_complete_status_with_required_work_completed"]
     };
+  }
+  if (status === "complete" && typeof execution.exit_code === "number" && !contract.allowedExitCodes.includes(execution.exit_code)) {
+    return { id: "scanner_execution", status: "invalid", reason: "scanner_execution_exit_code_invalid", details: contract.allowedExitCodes.map(String) };
   }
   const completeClaimProven =
     execution.invocation_started === true &&
@@ -218,6 +222,9 @@ export function verifyScannerExecutionBytes(evidence: EvidenceSnapshotRead, rece
     const scanner = value.scanner;
     if (!isObject(scanner) || scanner.name !== receipt?.scanner) {
       return { id: "scanner_execution", status: "invalid", reason: "scanner_identity_mismatch", details: [String(receipt?.scanner), isObject(scanner) ? String(scanner.name) : "missing"] };
+    }
+    if (executionContract !== "abstract-scanner-json-v1" && (typeof scanner.version !== "string" || scanner.version.length === 0)) {
+      return { id: "scanner_execution", status: "invalid", reason: "scanner_version_missing", details: ["evidence_scanner_version"] };
     }
     if (receipt?.scanner_version !== undefined && scanner.version !== receipt.scanner_version) {
       return { id: "scanner_execution", status: "invalid", reason: "scanner_version_mismatch", details: [String(receipt.scanner_version), String(scanner.version)] };
