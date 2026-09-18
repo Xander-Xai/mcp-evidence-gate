@@ -19,19 +19,6 @@ export function validateUses(ref, source = 'workflow') {
   return null;
 }
 
-function walk(node, visit, location = '$') {
-  if (Array.isArray(node)) {
-    node.forEach((value, index) => walk(value, visit, `${location}[${index}]`));
-    return;
-  }
-  if (!node || typeof node !== 'object') return;
-  for (const [key, value] of Object.entries(node)) {
-    const childLocation = `${location}.${key}`;
-    if (key === 'uses') visit(value, childLocation);
-    walk(value, visit, childLocation);
-  }
-}
-
 export function validateWorkflowText(text, source = 'workflow') {
   let document;
   try {
@@ -39,10 +26,36 @@ export function validateWorkflowText(text, source = 'workflow') {
     if (document.errors.length > 0) return document.errors.map((error) => `${source}: ${error.message}`);
     const value = document.toJS();
     const errors = [];
-    walk(value, (ref, location) => {
-      const error = validateUses(ref, `${source}${location}`);
-      if (error) errors.push(error);
-    });
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [`${source}: workflow root must be a mapping`];
+    if (value.jobs === undefined) return [`${source}: workflow jobs mapping is required`];
+    if (!value.jobs || typeof value.jobs !== 'object' || Array.isArray(value.jobs)) return [`${source}: workflow jobs must be a mapping`];
+    for (const [jobId, job] of Object.entries(value.jobs)) {
+      const location = `${source}.jobs.${jobId}`;
+      if (!job || typeof job !== 'object' || Array.isArray(job)) {
+        errors.push(`${location}: job must be a mapping`);
+        continue;
+      }
+      if (job.uses !== undefined) {
+        const error = validateUses(job.uses, `${location}.uses`);
+        if (error) errors.push(error);
+      }
+      if (job.steps !== undefined) {
+        if (!Array.isArray(job.steps)) {
+          errors.push(`${location}.steps: steps must be a sequence`);
+          continue;
+        }
+        for (const [index, step] of job.steps.entries()) {
+          if (!step || typeof step !== 'object' || Array.isArray(step)) {
+            errors.push(`${location}.steps[${index}]: step must be a mapping`);
+            continue;
+          }
+          if (step.uses !== undefined) {
+            const error = validateUses(step.uses, `${location}.steps[${index}].uses`);
+            if (error) errors.push(error);
+          }
+        }
+      }
+    }
     return errors;
   } catch (error) {
     return [`${source}: ${error instanceof Error ? error.message : String(error)}`];

@@ -8,11 +8,36 @@ on:
 permissions:
   contents: read
 
+env:
+  SOURCE_SHA: ${{ github.sha }}
+  EXECUTION_EVENT_SHA: ${{ github.sha }}
+  BASE_SHA: ''
+
 jobs:
   profile-drift:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Record execution provenance
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          test "$checked_out_sha" = "$EXECUTION_EVENT_SHA"
+          CHECKED_OUT_SHA="$checked_out_sha" node <<'NODE'
+          const fs = require('node:fs');
+          const value = {
+            event: process.env.EVENT_NAME,
+            source_sha: process.env.SOURCE_SHA,
+            execution_event_sha: process.env.EXECUTION_EVENT_SHA,
+            checked_out_sha: process.env.CHECKED_OUT_SHA,
+            base_sha: process.env.BASE_SHA,
+            pull_request: null,
+          };
+          fs.writeFileSync('profile-drift-provenance.json', `${JSON.stringify(value, null, 2)}\n`);
+          NODE
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -42,10 +67,12 @@ jobs:
         if: steps.sentinel.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: profile-drift-${{ github.sha }}
+          name: profile-drift-source-${{ env.SOURCE_SHA }}-exec-${{ env.EXECUTION_EVENT_SHA }}
           retention-days: 90
           if-no-files-found: error
-          path: profile-drift-report.json
+          path: |
+            profile-drift-report.json
+            profile-drift-provenance.json
 
       - name: Fail closed on contract drift or unknown state
         if: steps.sentinel.outcome != 'skipped'
