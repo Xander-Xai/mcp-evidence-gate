@@ -30,7 +30,7 @@ Primary maintainer: [@yandexuanxuan](https://github.com/yandexuanxuan)
 
 ## Project status
 
-Experimental downstream implementation. Not an official MCP project. No claim of Registry adoption. No verified third-party adoption was found in the exact GitHub search documented in [`docs/openai-codex-for-oss-evidence-matrix.md`](docs/openai-codex-for-oss-evidence-matrix.md).
+Experimental downstream implementation. Not an official MCP project. No claim of Registry adoption. No verified third-party adoption was found in the bounded public search documented in [`docs/project-evidence.md`](docs/project-evidence.md).
 
 The first compatibility profile is pinned to:
 
