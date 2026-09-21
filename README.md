@@ -12,14 +12,14 @@ MCP security receipts can report a scanner verdict without proving that the evid
 
 ## Maintainer
 
-Primary maintainer: [@yandexuanxuan](https://github.com/yandexuanxuan)
+Primary maintainer: [@Xander-Xai](https://github.com/Xander-Xai)
 
 ## Current evidence
 
 - Public MIT repository; the audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) is recorded in the application snapshot. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
 - `pnpm test`: 79 Vitest tests pass locally; the profile-drift sentinel adds 15 passing Node tests. The repository's CI and scheduled drift-sentinel runs are green for the audited baseline head.
-- Companion [dogfood repository](https://github.com/yandexuanxuan/mcp-evidence-gate-dogfood) records an 11-case Action matrix and successful real Trivy, OSV, multi-receipt composition, and OCI identity workflows. These are project-owned cross-repository acceptance evidence, not third-party adoption.
-- Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/yandexuanxuan/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
+- Companion [dogfood repository](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood) records an 11-case Action matrix and successful real Trivy, OSV, multi-receipt composition, and OCI identity workflows. These are project-owned cross-repository acceptance evidence, not third-party adoption.
+- Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/Xander-Xai/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
 - The pinned `registry-pr-1404` compatibility profile is locally matched to the current open PR's contract; drift is reported as `NON_CONTRACT_CHANGE` and kept pinned until reviewed.
 
 ## Ecosystem engagement
@@ -153,7 +153,7 @@ Use `--format json` for machine-readable output. Exit codes are stable for both 
 The experimental Action remains a thin **single-receipt** wrapper around the existing verifier and policy layer. It runs on the Node 24 GitHub Actions runtime, requires receipt, artifact, and policy inputs, and accepts an optional local `evidence` path. P2-003 does not change the Action input surface. It does not install dependencies or download `evidence_ref` in the consuming repository:
 
 ```yaml
-- uses: yandexuanxuan/mcp-evidence-gate@<immutable-commit-sha>
+- uses: Xander-Xai/mcp-evidence-gate@<immutable-commit-sha>
   with:
     receipt: fixtures/valid/complete-clean.json
     artifact: fixtures/artifacts/current-artifact.bin
@@ -164,6 +164,6 @@ It emits `decision`, `receipt-verdict`, and `profile`. PASS and policy-allowed W
 
 ## Tested downstream integration
 
-The companion [mcp-evidence-gate-dogfood](https://github.com/yandexuanxuan/mcp-evidence-gate-dogfood) exercises the Action across its decision and step outcome matrix using immutable commit references and also hosts real producer-consumer promotion oracles. P2-003 requires a downstream real Trivy + OSV receipt-set composition run before the multi-receipt feature is considered fully closed.
+The companion [mcp-evidence-gate-dogfood](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood) exercises the Action across its decision and step outcome matrix using immutable commit references and also hosts real producer-consumer promotion oracles. P2-003 requires a downstream real Trivy + OSV receipt-set composition run before the multi-receipt feature is considered fully closed.
 
 Consumers should pin a full commit SHA rather than a moving branch.
