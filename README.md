@@ -16,7 +16,7 @@ Primary maintainer: [@Xander-Xai](https://github.com/Xander-Xai)
 
 ## Current evidence
 
-- Current promoted `main`: `06567c840c1d68a4b45ff2d12d6e6c32898fff11`. The earlier audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) remains an application/audit snapshot, not the current repository identity. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
+- Last runtime-affecting promoted baseline: `06567c840c1d68a4b45ff2d12d6e6c32898fff11`. The earlier audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) remains an application/audit snapshot. Repository current HEAD must be resolved dynamically from GitHub; it is not hard-coded here. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
 - Test counts and CI claims in historical application material are snapshot evidence tied to the audited commit. Current code should be evaluated from the checks attached to the exact commit being promoted rather than by carrying those historical counts forward.
 - Companion [dogfood repository](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood) records the downstream Action matrix plus real Trivy, OSV, multi-receipt composition, OCI identity, scanner-completeness, and artifact-snapshot acceptance. These are project-owned cross-repository acceptance evidence, not third-party adoption.
 - Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/Xander-Xai/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
