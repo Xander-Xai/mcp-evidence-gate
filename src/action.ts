@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { evaluatePolicy, policyByName } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
-import { verifySbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
+import { composeSbomDecision, loadSbomEvidence, verifySbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
 import type { ReceiptInput } from "./core/types.js";
 
 function workspacePath(input: string): string {
@@ -34,19 +34,15 @@ export async function runAction(): Promise<void> {
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
   let sbomAdmission: SbomAdmissionResult = { status: "not-provided", reasonCodes: [] };
-  if (sbomEvidenceInput || sbomInput) {
-    if (!sbomEvidenceInput || !sbomInput) {
-      sbomAdmission = { status: "inconclusive", reasonCodes: ["sbom_missing"] };
-    } else {
-      const envelope = JSON.parse(await readFile(workspacePath(sbomEvidenceInput), "utf8")) as unknown;
-      sbomAdmission = await verifySbomEvidence(
-        artifactPath,
-        envelope,
-        new Uint8Array(await readFile(workspacePath(sbomInput)))
-      );
-    }
+  const sbomInputs = await loadSbomEvidence(
+    sbomEvidenceInput ? workspacePath(sbomEvidenceInput) : undefined,
+    sbomInput ? workspacePath(sbomInput) : undefined
+  );
+  if (sbomInputs.status === "result") sbomAdmission = sbomInputs.result;
+  else if (sbomInputs.status === "inputs") {
+    sbomAdmission = await verifySbomEvidence(artifactPath, sbomInputs.envelope, sbomInputs.sbomBytes);
   }
-  const effectiveDecision = sbomAdmission.status === "blocked" ? "fail" : sbomAdmission.status === "inconclusive" ? "inconclusive" : evaluation.decision;
+  const effectiveDecision = composeSbomDecision(evaluation.decision, sbomAdmission.status);
 
   core.setOutput("decision", effectiveDecision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);

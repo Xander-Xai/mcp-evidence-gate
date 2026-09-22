@@ -1,5 +1,5 @@
 import { parseDigest, sha256Bytes, sha256Artifact } from "./digest.js";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
 export type SbomAdmissionStatus = "pass" | "inconclusive" | "blocked" | "not-provided";
 
@@ -20,6 +20,8 @@ export interface SbomAdmissionResult {
   packageCount?: number;
 }
 
+export type CoreDecision = "pass" | "warn" | "inconclusive" | "fail";
+
 export const SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
@@ -35,6 +37,39 @@ export const SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1_000_000
 } as const);
+
+export type SbomInputLoad =
+  | { status: "not-provided" }
+  | { status: "result"; result: SbomAdmissionResult }
+  | { status: "inputs"; envelope: unknown; sbomBytes: Uint8Array };
+
+/** Read SBOM inputs with size preflight and one shared malformed-input path. */
+export async function loadSbomEvidence(
+  envelopePath?: string,
+  sbomPath?: string
+): Promise<SbomInputLoad> {
+  if (!envelopePath && !sbomPath) return { status: "not-provided" };
+  if (!envelopePath || !sbomPath) return { status: "result", result: inconclusive("sbom_missing") };
+  try {
+    const [envelopeStat, sbomStat] = await Promise.all([stat(envelopePath), stat(sbomPath)]);
+    if (envelopeStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes || sbomStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
+    }
+    const [envelopeBytes, sbomBytes] = await Promise.all([readFile(envelopePath), readFile(sbomPath)]);
+    let envelope: unknown;
+    try { envelope = JSON.parse(envelopeBytes.toString("utf8")) as unknown; }
+    catch { return { status: "result", result: inconclusive("sbom_malformed") }; }
+    return { status: "inputs", envelope, sbomBytes: new Uint8Array(sbomBytes) };
+  } catch {
+    return { status: "result", result: inconclusive("sbom_missing") };
+  }
+}
+
+export function composeSbomDecision(existing: CoreDecision, status: SbomAdmissionStatus): CoreDecision {
+  const sbomDecision: CoreDecision = status === "blocked" ? "fail" : status === "inconclusive" ? "inconclusive" : "pass";
+  const rank: Record<CoreDecision, number> = { pass: 0, warn: 1, inconclusive: 2, fail: 3 };
+  return rank[existing] >= rank[sbomDecision] ? existing : sbomDecision;
+}
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -116,9 +151,11 @@ export async function verifySbomEvidence(
     return inconclusive("sbom_format_unsupported");
   }
   if (!relationship) return inconclusive("artifact_sbom_binding_missing");
-  if (relationship.type !== SBOM_CONSUMER_CONTRACT.relationshipType || relationship.binding !== SBOM_CONSUMER_CONTRACT.binding ||
-      relationship.artifact_sha256 !== declaredArtifact || relationship.sbom_sha256 !== declaredSbom) {
+  if (relationship.artifact_sha256 !== declaredArtifact || relationship.sbom_sha256 !== declaredSbom) {
     return blocked("artifact_sbom_binding_mismatch");
+  }
+  if (relationship.type !== SBOM_CONSUMER_CONTRACT.relationshipType || relationship.binding !== SBOM_CONSUMER_CONTRACT.binding) {
+    return inconclusive("artifact_sbom_binding_missing");
   }
 
   let parsed: Record<string, unknown>;

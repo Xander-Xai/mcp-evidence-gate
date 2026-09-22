@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
 import { sha256Bytes } from "../src/core/digest.js";
-import { verifySbomEvidence } from "../src/core/sbom.js";
+import { composeSbomDecision, loadSbomEvidence, SBOM_RESOURCE_LIMITS, verifySbomEvidence } from "../src/core/sbom.js";
 
 const dirs: string[] = [];
 async function fixture() {
@@ -45,6 +45,34 @@ describe("SBOM admission v1", () => {
     const other = sha256Bytes(new TextEncoder().encode("other-artifact"));
     const result = await verifySbomEvidence(f.artifactPath, { ...f.envelope(), relationship: { ...f.envelope().relationship, artifact_sha256: other } }, f.sbomBytes);
     expect(result).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    const wrongSbom = { ...f.envelope(), relationship: { ...f.envelope().relationship, sbom_sha256: "sha256:" + "0".repeat(64) } };
+    expect(await verifySbomEvidence(f.artifactPath, wrongSbom, f.sbomBytes)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+  });
+
+  it("treats internally consistent same-release semantics as inconclusive", async () => {
+    const f = await fixture();
+    const envelope = f.envelope();
+    envelope.relationship.binding = "same-release";
+    expect(await verifySbomEvidence(f.artifactPath, envelope, f.sbomBytes)).toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+    envelope.relationship.binding = "same-version";
+    expect(await verifySbomEvidence(f.artifactPath, envelope, f.sbomBytes)).toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+  });
+
+  it("preserves an existing FAIL when SBOM admission is inconclusive", () => {
+    expect(composeSbomDecision("fail", "inconclusive")).toBe("fail");
+    expect(composeSbomDecision("fail", "pass")).toBe("fail");
+    expect(composeSbomDecision("pass", "inconclusive")).toBe("inconclusive");
+    expect(composeSbomDecision("pass", "blocked")).toBe("fail");
+  });
+
+  it("rejects an oversized SBOM path before reading its bytes", async () => {
+    const f = await fixture();
+    const envelopePath = join(f.dir, "envelope.json");
+    const oversizedPath = join(f.dir, "oversized.sbom");
+    await writeFile(envelopePath, "{}");
+    await writeFile(oversizedPath, "");
+    await truncate(oversizedPath, SBOM_RESOURCE_LIMITS.maxSbomBytes + 1);
+    expect(await loadSbomEvidence(envelopePath, oversizedPath)).toEqual({ status: "result", result: { status: "inconclusive", reasonCodes: ["sbom_size_limit_exceeded"] } });
   });
 
   it("blocks a Syft source metadata mismatch", async () => {

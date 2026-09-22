@@ -1,4 +1,6 @@
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
@@ -125,6 +127,47 @@ describe("mcp-evidence-gate verify CLI", () => {
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("Decision: FAIL");
     expect(result.stdout).toContain("evidence_binding_invalid");
+  });
+
+  it("maps malformed SBOM envelope JSON to structured inconclusive", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-cli-sbom-"));
+    try {
+      const envelope = join(dir, "malformed.json");
+      const sbom = join(dir, "sbom.json");
+      await writeFile(envelope, "{", "utf8");
+      await writeFile(sbom, "{}", "utf8");
+      const result = await invoke([
+        "verify", "--receipt", receipt("complete-clean.json"), "--artifact", artifact,
+        "--sbom-evidence", envelope, "--sbom", sbom, "--policy", "permissive", "--format", "json", "--now", now
+      ]);
+      const model = JSON.parse(result.stdout);
+      expect(result.code).toBe(2);
+      expect(model.decision).toBe("inconclusive");
+      expect(model.sbom_admission_status).toBe("inconclusive");
+      expect(model.sbom_reason_codes).toContain("sbom_malformed");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not downgrade an existing FAIL when SBOM admission is inconclusive", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-cli-sbom-fail-"));
+    try {
+      const envelope = join(dir, "malformed.json");
+      const sbom = join(dir, "sbom.json");
+      await writeFile(envelope, "{", "utf8");
+      await writeFile(sbom, "{}", "utf8");
+      const result = await invoke([
+        "verify", "--receipt", receipt("complete-findings.json"), "--artifact", artifact,
+        "--sbom-evidence", envelope, "--sbom", sbom, "--policy", "permissive", "--format", "json", "--now", now
+      ]);
+      const model = JSON.parse(result.stdout);
+      expect(result.code).toBe(1);
+      expect(model.decision).toBe("fail");
+      expect(model.sbom_admission_status).toBe("inconclusive");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns PASS with exit 0 for unsupported well-formed evidence digest without --evidence", async () => {

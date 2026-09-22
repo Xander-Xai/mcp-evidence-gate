@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { evaluateReceiptSet } from "./core/composition.js";
 import { evaluatePolicy, policyByName, type PolicyConfig } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
-import { verifySbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
+import { composeSbomDecision, loadSbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
 import type { ReceiptInput, VerificationResult } from "./core/types.js";
 const packageJson = createRequire(import.meta.url)("../package.json") as { version: string };
 export const CLI_VERSION = packageJson.version;
@@ -184,7 +184,7 @@ function outputModel(
   sbomAdmission: SbomAdmissionResult
 ) {
   const decision = evaluatePolicy(receipt, verification, policy, evaluatedAt);
-  const effectiveDecision = sbomAdmission.status === "blocked" ? "fail" : sbomAdmission.status === "inconclusive" ? "inconclusive" : decision.decision;
+  const effectiveDecision = composeSbomDecision(decision.decision, sbomAdmission.status);
   const sbomReasons = sbomAdmission.reasonCodes.map((code) => ({ code, detail: `SBOM admission: ${code}` }));
   return {
     tool: "mcp-evidence-gate",
@@ -318,13 +318,11 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
       });
       let sbomAdmission: SbomAdmissionResult = { status: "not-provided", reasonCodes: [] };
-      if (parsed.sbomEvidence || parsed.sbom) {
-        if (!parsed.sbomEvidence || !parsed.sbom) sbomAdmission = { status: "inconclusive", reasonCodes: ["sbom_missing"] };
-        else sbomAdmission = await verifySbomEvidence(
-          parsed.artifact,
-          JSON.parse(await readFile(parsed.sbomEvidence, "utf8")) as unknown,
-          new Uint8Array(await readFile(parsed.sbom))
-        );
+      const sbomInputs = await loadSbomEvidence(parsed.sbomEvidence, parsed.sbom);
+      if (sbomInputs.status === "result") sbomAdmission = sbomInputs.result;
+      else if (sbomInputs.status === "inputs") {
+        const { verifySbomEvidence } = await import("./core/sbom.js");
+        sbomAdmission = await verifySbomEvidence(parsed.artifact, sbomInputs.envelope, sbomInputs.sbomBytes);
       }
       const model = outputModel(policy, verification, receipt, evaluatedAt, sbomAdmission);
       if (parsed.format === "json") io.stdout(`${JSON.stringify(model, null, 2)}\n`);

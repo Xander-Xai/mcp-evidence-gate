@@ -28671,6 +28671,33 @@ var SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1e6
 });
+async function loadSbomEvidence(envelopePath, sbomPath) {
+  if (!envelopePath && !sbomPath)
+    return { status: "not-provided" };
+  if (!envelopePath || !sbomPath)
+    return { status: "result", result: inconclusive("sbom_missing") };
+  try {
+    const [envelopeStat, sbomStat] = await Promise.all([(0, import_promises2.stat)(envelopePath), (0, import_promises2.stat)(sbomPath)]);
+    if (envelopeStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes || sbomStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
+    }
+    const [envelopeBytes, sbomBytes] = await Promise.all([(0, import_promises2.readFile)(envelopePath), (0, import_promises2.readFile)(sbomPath)]);
+    let envelope;
+    try {
+      envelope = JSON.parse(envelopeBytes.toString("utf8"));
+    } catch {
+      return { status: "result", result: inconclusive("sbom_malformed") };
+    }
+    return { status: "inputs", envelope, sbomBytes: new Uint8Array(sbomBytes) };
+  } catch {
+    return { status: "result", result: inconclusive("sbom_missing") };
+  }
+}
+function composeSbomDecision(existing, status) {
+  const sbomDecision = status === "blocked" ? "fail" : status === "inconclusive" ? "inconclusive" : "pass";
+  const rank = { pass: 0, warn: 1, inconclusive: 2, fail: 3 };
+  return rank[existing] >= rank[sbomDecision] ? existing : sbomDecision;
+}
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
@@ -28747,8 +28774,11 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   }
   if (!relationship)
     return inconclusive("artifact_sbom_binding_missing");
-  if (relationship.type !== SBOM_CONSUMER_CONTRACT.relationshipType || relationship.binding !== SBOM_CONSUMER_CONTRACT.binding || relationship.artifact_sha256 !== declaredArtifact || relationship.sbom_sha256 !== declaredSbom) {
+  if (relationship.artifact_sha256 !== declaredArtifact || relationship.sbom_sha256 !== declaredSbom) {
     return blocked("artifact_sbom_binding_mismatch");
+  }
+  if (relationship.type !== SBOM_CONSUMER_CONTRACT.relationshipType || relationship.binding !== SBOM_CONSUMER_CONTRACT.binding) {
+    return inconclusive("artifact_sbom_binding_missing");
   }
   let parsed;
   try {
@@ -28817,19 +28847,16 @@ async function runAction() {
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
   let sbomAdmission = { status: "not-provided", reasonCodes: [] };
-  if (sbomEvidenceInput || sbomInput) {
-    if (!sbomEvidenceInput || !sbomInput) {
-      sbomAdmission = { status: "inconclusive", reasonCodes: ["sbom_missing"] };
-    } else {
-      const envelope = JSON.parse(await (0, import_promises3.readFile)(workspacePath(sbomEvidenceInput), "utf8"));
-      sbomAdmission = await verifySbomEvidence(
-        artifactPath,
-        envelope,
-        new Uint8Array(await (0, import_promises3.readFile)(workspacePath(sbomInput)))
-      );
-    }
+  const sbomInputs = await loadSbomEvidence(
+    sbomEvidenceInput ? workspacePath(sbomEvidenceInput) : void 0,
+    sbomInput ? workspacePath(sbomInput) : void 0
+  );
+  if (sbomInputs.status === "result")
+    sbomAdmission = sbomInputs.result;
+  else if (sbomInputs.status === "inputs") {
+    sbomAdmission = await verifySbomEvidence(artifactPath, sbomInputs.envelope, sbomInputs.sbomBytes);
   }
-  const effectiveDecision = sbomAdmission.status === "blocked" ? "fail" : sbomAdmission.status === "inconclusive" ? "inconclusive" : evaluation.decision;
+  const effectiveDecision = composeSbomDecision(evaluation.decision, sbomAdmission.status);
   core.setOutput("decision", effectiveDecision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
   core.setOutput("profile", evaluation.profile);
