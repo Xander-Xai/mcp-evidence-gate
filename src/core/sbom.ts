@@ -243,6 +243,20 @@ export async function verifySbomEvidence(
       if (sha256Bytes(embeddedBytes) !== artifactDigest) {
         return blocked("artifact_sbom_binding_mismatch");
       }
+      try {
+        const parsedEmbedded = object(JSON.parse(new TextDecoder().decode(embeddedBytes)));
+        const config = object(parsedEmbedded?.config);
+        if (!parsedEmbedded || !config) return blocked("artifact_sbom_binding_mismatch");
+        const configDigest = parseOptionalIdentityField(config, "digest", false);
+        if (configDigest.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
+        const imageId = parseOptionalIdentityField(metadata, "imageID", false);
+        if (imageId.state === "malformed" ||
+            (imageId.state === "valid" && imageId.digest !== configDigest.digest)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
     }
   } else if (sourceType === "file") {
     let sourceDigest: string;
