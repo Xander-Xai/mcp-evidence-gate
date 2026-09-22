@@ -1,0 +1,6 @@
+[
+  {"id":"A-valid","artifact":"artifact-a.artifact","sbom":"valid-sbom.json","expected":"COMPLETE"},
+  {"id":"B-mismatch","artifact":"artifact-a.artifact","sbom":"mismatch-sbom.json","expected":"BLOCKED"},
+  {"id":"C-invalid","artifact":"artifact-a.artifact","sbom":"invalid-sbom.json","expected":"INCONCLUSIVE"},
+  {"id":"D-missing","artifact":"artifact-a.artifact","sbom":null,"expected":"INCONCLUSIVE"}
+]

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { evaluatePolicy, policyByName } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
+import { verifySbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
 import type { ReceiptInput } from "./core/types.js";
 
 function workspacePath(input: string): string {
@@ -18,6 +19,8 @@ export async function runAction(): Promise<void> {
   const artifactInput = core.getInput("artifact", { required: true });
   const policyInput = core.getInput("policy", { required: true });
   const evidenceInput = core.getInput("evidence");
+  const sbomEvidenceInput = core.getInput("sbom-evidence");
+  const sbomInput = core.getInput("sbom");
   const receiptPath = workspacePath(receiptInput);
   const artifactPath = workspacePath(artifactInput);
   const policy = policyByName(policyInput);
@@ -30,6 +33,19 @@ export async function runAction(): Promise<void> {
     requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
+  let sbomAdmission: SbomAdmissionResult = { status: "not-provided", reasonCodes: [] };
+  if (sbomEvidenceInput || sbomInput) {
+    if (!sbomEvidenceInput || !sbomInput) {
+      sbomAdmission = { status: "inconclusive", reasonCodes: ["sbom_missing"] };
+    } else {
+      const envelope = JSON.parse(await readFile(workspacePath(sbomEvidenceInput), "utf8")) as unknown;
+      sbomAdmission = await verifySbomEvidence(
+        artifactPath,
+        envelope,
+        new Uint8Array(await readFile(workspacePath(sbomInput)))
+      );
+    }
+  }
 
   core.setOutput("decision", evaluation.decision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
@@ -41,7 +57,23 @@ export async function runAction(): Promise<void> {
   core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
   core.setOutput("reason-codes", evaluation.reasonCodes.join(","));
   core.setOutput("policy-version", evaluation.policyVersion ?? "");
+  core.setOutput("sbom-admission-status", sbomAdmission.status);
+  core.setOutput("sbom-reason-codes", sbomAdmission.reasonCodes.join(","));
+  core.setOutput("sbom-format", sbomAdmission.format ?? "");
+  core.setOutput("sbom-schema-version", sbomAdmission.schemaVersion ?? "");
+  core.setOutput("sbom-package-count", sbomAdmission.packageCount?.toString() ?? "");
   core.info(`MCP Evidence Gate decision: ${evaluation.decision.toUpperCase()}`);
+  core.info(`SBOM evidence: ${sbomAdmission.status.toUpperCase()}`);
+  core.info("Security verdict: NOT EVALUATED BY SBOM CONTRACT");
+
+  if (sbomAdmission.status === "blocked") {
+    core.setFailed(`SBOM BLOCKED: ${sbomAdmission.reasonCodes.join(", ")}`);
+    return;
+  }
+  if (sbomAdmission.status === "inconclusive") {
+    core.setFailed(`SBOM INCONCLUSIVE: ${sbomAdmission.reasonCodes.join(", ")}`);
+    return;
+  }
 
   if (evaluation.decision === "warn") {
     core.warning(formatReasons(evaluation.reasons));
