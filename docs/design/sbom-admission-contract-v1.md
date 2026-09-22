@@ -84,7 +84,7 @@ The first allowlist contains only the format exercised by the real pilot:
 ```ts
 type ConsumerSbomContract = {
   format: "syft-json";
-  schemaVersion: "16.1.3";
+  supportedSchemaVersions: ["16.1.3", "16.1.10"];
   binding: "exact-artifact";
   requiredEvidence: [
     "artifact_identity",
@@ -96,12 +96,13 @@ type ConsumerSbomContract = {
 };
 ```
 
-`16.x`, `>=16`, CycloneDX, and SPDX are not v1 allowlist entries. A later
-schema version requires an explicit compatibility review and its own real
-artifact, real SBOM, binding, tamper, schema, and inventory evidence.
+`16.x`, `>=16`, CycloneDX, and SPDX are not v1 allowlist entries. The two
+Syft JSON versions above are explicit qualified entries; a later schema
+version requires its own compatibility review and real artifact, SBOM,
+binding, tamper, schema, and inventory evidence.
 
 The Wave-3.2 fixture used CycloneDX-like fields. Wave-3.3 showed that real
-Syft JSON uses schema `16.1.3`, `artifacts` for the package collection,
+Syft JSON uses schema `16.1.3` and Wave-3.7 qualified `16.1.10`; both use `artifacts` for the package collection,
 `source.name`/`source.version` for source metadata, and `schema.version` for
 the descriptor. Fixture assumptions are therefore subordinate to the real
 Syft shape. CycloneDX and SPDX remain **NOT YET VERIFIED**.
@@ -145,7 +146,7 @@ asset. This is evidence for that pair, not a generic assumption for all SBOMs.
 
 ## 6. Syft-native schema and inventory
 
-For `syft-json` `16.1.3`, Core must require parseable JSON, the expected
+For qualified `syft-json` schemas `16.1.3` and `16.1.10`, Core must require parseable JSON, the expected
 descriptor/schema information, source metadata, and an `artifacts` collection.
 Each inventory item must expose the fields needed by the consumer contract:
 stable identifier, name, version, and type/ecosystem information. The parser
@@ -279,7 +280,7 @@ or existing scanner contract migration belongs in that PR.
 
 ## 14. Regression test matrix
 
-The implementation covers valid Syft 16.1.3 exact-bound, tampered SBOM,
+The implementation covers valid Syft 16.1.3 and 16.1.10 exact-bound, tampered SBOM,
 artifact mismatch, missing SBOM, malformed JSON, unsupported schema, missing
 inventory, empty inventory, missing binding, malformed SBOM digest, and
 platform mismatch where platform metadata is present. Existing scanner tests
@@ -298,5 +299,7 @@ CORE_CODE_CHANGED = YES
 CORE_PR_CREATED = YES
 ```
 
-Next action: promote the open Core PR only after main CI and promoted-main
-dogfood remain green; then validate a second independent real artifact.
+Wave-3.7 qualification is cross-artifact / cross-project validation within
+the Syft JSON producer ecosystem. It does not prove cross-producer
+generalization; CycloneDX, SPDX, and other SBOM generators remain outside
+this contract.
