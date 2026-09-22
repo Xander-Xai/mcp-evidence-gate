@@ -15,6 +15,12 @@ inputs:
   evidence:
     description: "Path to an optional local evidence report matching receipt.evidence_digest."
     required: false
+  sbom-evidence:
+    description: "Optional path to the consumer-owned SBOM evidence envelope JSON."
+    required: false
+  sbom:
+    description: "Optional path to the exact SBOM bytes referenced by sbom-evidence."
+    required: false
 
 outputs:
   decision:
@@ -37,6 +43,16 @@ outputs:
     description: "Comma-separated stable policy reason codes."
   policy-version:
     description: "Version of the selected project-defined policy extension, if any."
+  sbom-admission-status:
+    description: "SBOM evidence admission status: pass, inconclusive, blocked, or not-provided."
+  sbom-reason-codes:
+    description: "Comma-separated SBOM admission reason codes."
+  sbom-format:
+    description: "Accepted SBOM format when admitted."
+  sbom-schema-version:
+    description: "Accepted SBOM schema version when admitted."
+  sbom-package-count:
+    description: "Parsed SBOM package count when admitted."
 
 runs:
   using: node24

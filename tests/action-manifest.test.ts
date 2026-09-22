@@ -18,7 +18,7 @@ describe("GitHub Action manifest", () => {
     expect(manifest.name).toBe("MCP Evidence Gate");
     expect(typeof manifest.description).toBe("string");
     expect(manifest.runs).toEqual({ using: "node24", main: "dist/action/index.cjs" });
-    expect(Object.keys(manifest.inputs ?? {})).toEqual(["receipt", "artifact", "policy", "evidence"]);
+    expect(Object.keys(manifest.inputs ?? {})).toEqual(["receipt", "artifact", "policy", "evidence", "sbom-evidence", "sbom"]);
     expect(Object.keys(manifest.outputs ?? {})).toEqual([
       "decision",
       "receipt-verdict",
@@ -29,7 +29,12 @@ describe("GitHub Action manifest", () => {
       "admission-status",
       "scanner-execution-status",
       "reason-codes",
-      "policy-version"
+      "policy-version",
+      "sbom-admission-status",
+      "sbom-reason-codes",
+      "sbom-format",
+      "sbom-schema-version",
+      "sbom-package-count"
     ]);
     for (const section of [manifest.inputs ?? {}, manifest.outputs ?? {}]) {
       for (const definition of Object.values(section)) {

@@ -961,8 +961,8 @@ var require_util = __commonJS({
     function isStream(obj) {
       return obj && typeof obj === "object" && typeof obj.pipe === "function" && typeof obj.on === "function";
     }
-    function isBlobLike(object) {
-      return Blob2 && object instanceof Blob2 || object && typeof object === "object" && (typeof object.stream === "function" || typeof object.arrayBuffer === "function") && /^(Blob|File)$/.test(object[Symbol.toStringTag]);
+    function isBlobLike(object2) {
+      return Blob2 && object2 instanceof Blob2 || object2 && typeof object2 === "object" && (typeof object2.stream === "function" || typeof object2.arrayBuffer === "function") && /^(Blob|File)$/.test(object2[Symbol.toStringTag]);
     }
     function buildURL(url, queryParams) {
       if (url.includes("?") || url.includes("#")) {
@@ -1242,8 +1242,8 @@ var require_util = __commonJS({
         0
       );
     }
-    function isFormDataLike(object) {
-      return object && typeof object === "object" && typeof object.append === "function" && typeof object.delete === "function" && typeof object.get === "function" && typeof object.getAll === "function" && typeof object.has === "function" && typeof object.set === "function" && object[Symbol.toStringTag] === "FormData";
+    function isFormDataLike(object2) {
+      return object2 && typeof object2 === "object" && typeof object2.append === "function" && typeof object2.delete === "function" && typeof object2.get === "function" && typeof object2.getAll === "function" && typeof object2.has === "function" && typeof object2.set === "function" && object2[Symbol.toStringTag] === "FormData";
     }
     function throwIfAborted(signal) {
       if (!signal) {
@@ -3680,8 +3680,8 @@ var require_util2 = __commonJS({
       }
       return "allowed";
     }
-    function isErrorLike(object) {
-      return object instanceof Error || (object?.constructor?.name === "Error" || object?.constructor?.name === "DOMException");
+    function isErrorLike(object2) {
+      return object2 instanceof Error || (object2?.constructor?.name === "Error" || object2?.constructor?.name === "DOMException");
     }
     function isValidReasonPhrase(statusText) {
       for (let i = 0; i < statusText.length; ++i) {
@@ -4063,7 +4063,7 @@ var require_util2 = __commonJS({
     }
     var esIteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
     function makeIterator(iterator, name, kind) {
-      const object = {
+      const object2 = {
         index: 0,
         kind,
         target: iterator
@@ -4075,14 +4075,14 @@ var require_util2 = __commonJS({
               `'next' called on an object that does not implement interface ${name} Iterator.`
             );
           }
-          const { index, kind: kind2, target } = object;
+          const { index, kind: kind2, target } = object2;
           const values = target();
           const len = values.length;
           if (index >= len) {
             return { value: void 0, done: true };
           }
           const pair = values[index];
-          object.index = index + 1;
+          object2.index = index + 1;
           return iteratorResult(pair, kind2);
         },
         // The class string of an iterator prototype object for a given interface is the
@@ -5090,8 +5090,8 @@ var require_file = __commonJS({
       }
       return s.replace(/\r?\n/g, nativeLineEnding);
     }
-    function isFileLike(object) {
-      return NativeFile && object instanceof NativeFile || object instanceof File || object && (typeof object.stream === "function" || typeof object.arrayBuffer === "function") && object[Symbol.toStringTag] === "File";
+    function isFileLike(object2) {
+      return NativeFile && object2 instanceof NativeFile || object2 instanceof File || object2 && (typeof object2.stream === "function" || typeof object2.arrayBuffer === "function") && object2[Symbol.toStringTag] === "File";
     }
     module2.exports = { File, FileLike, isFileLike };
   }
@@ -5289,15 +5289,15 @@ var require_body = __commonJS({
     var File = NativeFile ?? UndiciFile;
     var textEncoder = new TextEncoder();
     var textDecoder = new TextDecoder();
-    function extractBody(object, keepalive = false) {
+    function extractBody(object2, keepalive = false) {
       if (!ReadableStream) {
         ReadableStream = require("stream/web").ReadableStream;
       }
       let stream = null;
-      if (object instanceof ReadableStream) {
-        stream = object;
-      } else if (isBlobLike(object)) {
-        stream = object.stream();
+      if (object2 instanceof ReadableStream) {
+        stream = object2;
+      } else if (isBlobLike(object2)) {
+        stream = object2.stream();
       } else {
         stream = new ReadableStream({
           async pull(controller) {
@@ -5316,17 +5316,17 @@ var require_body = __commonJS({
       let source = null;
       let length = null;
       let type = null;
-      if (typeof object === "string") {
-        source = object;
+      if (typeof object2 === "string") {
+        source = object2;
         type = "text/plain;charset=UTF-8";
-      } else if (object instanceof URLSearchParams) {
-        source = object.toString();
+      } else if (object2 instanceof URLSearchParams) {
+        source = object2.toString();
         type = "application/x-www-form-urlencoded;charset=UTF-8";
-      } else if (isArrayBuffer(object)) {
-        source = new Uint8Array(object.slice());
-      } else if (ArrayBuffer.isView(object)) {
-        source = new Uint8Array(object.buffer.slice(object.byteOffset, object.byteOffset + object.byteLength));
-      } else if (util.isFormDataLike(object)) {
+      } else if (isArrayBuffer(object2)) {
+        source = new Uint8Array(object2.slice());
+      } else if (ArrayBuffer.isView(object2)) {
+        source = new Uint8Array(object2.buffer.slice(object2.byteOffset, object2.byteOffset + object2.byteLength));
+      } else if (util.isFormDataLike(object2)) {
         const boundary = `----formdata-undici-0${`${random(1e11)}`.padStart(11, "0")}`;
         const prefix = `--${boundary}\r
 Content-Disposition: form-data`;
@@ -5336,7 +5336,7 @@ Content-Disposition: form-data`;
         const rn = new Uint8Array([13, 10]);
         length = 0;
         let hasUnknownSizeValue = false;
-        for (const [name, value] of object) {
+        for (const [name, value] of object2) {
           if (typeof value === "string") {
             const chunk2 = textEncoder.encode(prefix + `; name="${escape2(normalizeLinefeeds(name))}"\r
 \r
@@ -5363,7 +5363,7 @@ Content-Type: ${value.type || "application/octet-stream"}\r
         if (hasUnknownSizeValue) {
           length = null;
         }
-        source = object;
+        source = object2;
         action = async function* () {
           for (const part of blobParts) {
             if (part.stream) {
@@ -5374,22 +5374,22 @@ Content-Type: ${value.type || "application/octet-stream"}\r
           }
         };
         type = "multipart/form-data; boundary=" + boundary;
-      } else if (isBlobLike(object)) {
-        source = object;
-        length = object.size;
-        if (object.type) {
-          type = object.type;
+      } else if (isBlobLike(object2)) {
+        source = object2;
+        length = object2.size;
+        if (object2.type) {
+          type = object2.type;
         }
-      } else if (typeof object[Symbol.asyncIterator] === "function") {
+      } else if (typeof object2[Symbol.asyncIterator] === "function") {
         if (keepalive) {
           throw new TypeError("keepalive");
         }
-        if (util.isDisturbed(object) || object.locked) {
+        if (util.isDisturbed(object2) || object2.locked) {
           throw new TypeError(
             "Response body object should not be disturbed or locked"
           );
         }
-        stream = object instanceof ReadableStream ? object : ReadableStreamFrom(object);
+        stream = object2 instanceof ReadableStream ? object2 : ReadableStreamFrom(object2);
       }
       if (typeof source === "string" || util.isBuffer(source)) {
         length = Buffer.byteLength(source);
@@ -5398,7 +5398,7 @@ Content-Type: ${value.type || "application/octet-stream"}\r
         let iterator;
         stream = new ReadableStream({
           async start() {
-            iterator = action(object)[Symbol.asyncIterator]();
+            iterator = action(object2)[Symbol.asyncIterator]();
           },
           async pull(controller) {
             const { value, done } = await iterator.next();
@@ -5422,15 +5422,15 @@ Content-Type: ${value.type || "application/octet-stream"}\r
       const body = { stream, source, length };
       return [body, type];
     }
-    function safelyExtractBody(object, keepalive = false) {
+    function safelyExtractBody(object2, keepalive = false) {
       if (!ReadableStream) {
         ReadableStream = require("stream/web").ReadableStream;
       }
-      if (object instanceof ReadableStream) {
-        assert(!util.isDisturbed(object), "The body has already been consumed.");
-        assert(!object.locked, "The stream is locked.");
+      if (object2 instanceof ReadableStream) {
+        assert(!util.isDisturbed(object2), "The body has already been consumed.");
+        assert(!object2.locked, "The stream is locked.");
       }
-      return extractBody(object, keepalive);
+      return extractBody(object2, keepalive);
     }
     function cloneBody(body) {
       const [out1, out2] = body.stream.tee();
@@ -5579,10 +5579,10 @@ Content-Type: ${value.type || "application/octet-stream"}\r
     function mixinBody(prototype) {
       Object.assign(prototype.prototype, bodyMixinMethods(prototype));
     }
-    async function specConsumeBody(object, convertBytesToJSValue, instance) {
-      webidl.brandCheck(object, instance);
-      throwIfAborted(object[kState]);
-      if (bodyUnusable(object[kState].body)) {
+    async function specConsumeBody(object2, convertBytesToJSValue, instance) {
+      webidl.brandCheck(object2, instance);
+      throwIfAborted(object2[kState]);
+      if (bodyUnusable(object2[kState].body)) {
         throw new TypeError("Body is unusable");
       }
       const promise = createDeferredPromise();
@@ -5594,11 +5594,11 @@ Content-Type: ${value.type || "application/octet-stream"}\r
           errorSteps(e);
         }
       };
-      if (object[kState].body == null) {
+      if (object2[kState].body == null) {
         successSteps(new Uint8Array());
         return promise.promise;
       }
-      await fullyReadBody(object[kState].body, successSteps, errorSteps);
+      await fullyReadBody(object2[kState].body, successSteps, errorSteps);
       return promise.promise;
     }
     function bodyUnusable(body) {
@@ -5617,8 +5617,8 @@ Content-Type: ${value.type || "application/octet-stream"}\r
     function parseJSONFromBytes(bytes) {
       return JSON.parse(utf8DecodeBytes(bytes));
     }
-    function bodyMimeType(object) {
-      const { headersList } = object[kState];
+    function bodyMimeType(object2) {
+      const { headersList } = object2[kState];
       const contentType = headersList.get("content-type");
       if (contentType === null) {
         return "failure";
@@ -11595,10 +11595,10 @@ var require_headers = __commonJS({
         ++i;
       return i === 0 && j === potentialValue.length ? potentialValue : potentialValue.substring(i, j);
     }
-    function fill(headers, object) {
-      if (Array.isArray(object)) {
-        for (let i = 0; i < object.length; ++i) {
-          const header = object[i];
+    function fill(headers, object2) {
+      if (Array.isArray(object2)) {
+        for (let i = 0; i < object2.length; ++i) {
+          const header = object2[i];
           if (header.length !== 2) {
             throw webidl.errors.exception({
               header: "Headers constructor",
@@ -11607,10 +11607,10 @@ var require_headers = __commonJS({
           }
           appendHeader(headers, header[0], header[1]);
         }
-      } else if (typeof object === "object" && object !== null) {
-        const keys = Object.keys(object);
+      } else if (typeof object2 === "object" && object2 !== null) {
+        const keys = Object.keys(object2);
         for (let i = 0; i < keys.length; ++i) {
-          appendHeader(headers, keys[i], object[keys[i]]);
+          appendHeader(headers, keys[i], object2[keys[i]]);
         }
       } else {
         throw webidl.errors.conversionFailed({
@@ -16402,8 +16402,8 @@ var require_connection = __commonJS({
             return;
           }
           const secWSAccept = response.headersList.get("Sec-WebSocket-Accept");
-          const digest = crypto.createHash("sha1").update(keyValue + uid).digest("base64");
-          if (secWSAccept !== digest) {
+          const digest2 = crypto.createHash("sha1").update(keyValue + uid).digest("base64");
+          if (secWSAccept !== digest2) {
             failWebsocketConnection(ws, "Incorrect hash received in Sec-WebSocket-Accept header.");
             return;
           }
@@ -27884,7 +27884,7 @@ __export(action_exports, {
 });
 module.exports = __toCommonJS(action_exports);
 var core = __toESM(require_core(), 1);
-var import_promises2 = require("node:fs/promises");
+var import_promises3 = require("node:fs/promises");
 var import_node_path = require("node:path");
 
 // src/profiles/registry-pr-1404.ts
@@ -28658,6 +28658,168 @@ async function verifyReceipt(receipt, artifactPath, now, freshnessOptions = {}) 
   };
 }
 
+// src/core/sbom.ts
+var import_promises2 = require("node:fs/promises");
+var SBOM_CONSUMER_CONTRACT = Object.freeze({
+  envelopeSchema: "project-defined-sbom-evidence-v1",
+  format: "syft-json",
+  schemaVersion: "16.1.3",
+  relationshipType: "generated-from",
+  binding: "exact-artifact"
+});
+var SBOM_RESOURCE_LIMITS = Object.freeze({
+  maxSbomBytes: 64 * 1024 * 1024,
+  maxPackageCount: 1e6
+});
+async function loadSbomEvidence(envelopePath, sbomPath) {
+  if (!envelopePath && !sbomPath)
+    return { status: "not-provided" };
+  if (!envelopePath || !sbomPath)
+    return { status: "result", result: inconclusive("sbom_missing") };
+  try {
+    const [envelopeStat, sbomStat] = await Promise.all([(0, import_promises2.stat)(envelopePath), (0, import_promises2.stat)(sbomPath)]);
+    if (envelopeStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes || sbomStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
+    }
+    const [envelopeBytes, sbomBytes] = await Promise.all([(0, import_promises2.readFile)(envelopePath), (0, import_promises2.readFile)(sbomPath)]);
+    let envelope;
+    try {
+      envelope = JSON.parse(envelopeBytes.toString("utf8"));
+    } catch {
+      return { status: "result", result: inconclusive("sbom_malformed") };
+    }
+    return { status: "inputs", envelope, sbomBytes: new Uint8Array(sbomBytes) };
+  } catch {
+    return { status: "result", result: inconclusive("sbom_missing") };
+  }
+}
+function composeSbomDecision(existing, status) {
+  const sbomDecision = status === "blocked" ? "fail" : status === "inconclusive" ? "inconclusive" : "pass";
+  const rank = { pass: 0, warn: 1, inconclusive: 2, fail: 3 };
+  return rank[existing] >= rank[sbomDecision] ? existing : sbomDecision;
+}
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function nonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+function blocked(...reasonCodes) {
+  return { status: "blocked", reasonCodes };
+}
+function inconclusive(...reasonCodes) {
+  return { status: "inconclusive", reasonCodes };
+}
+function digest(value, missingCode, malformedCode) {
+  if (value === void 0)
+    return void 0;
+  try {
+    const parsed = parseDigest(value);
+    return `sha256:${parsed.hex}`;
+  } catch {
+    throw new Error(malformedCode);
+  }
+}
+function isPackageRecord(value) {
+  const item = object(value);
+  return !!item && nonEmptyString(item.id) && nonEmptyString(item.name) && nonEmptyString(item.version) && nonEmptyString(item.type);
+}
+async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
+  const root = object(envelope);
+  if (!root)
+    return inconclusive("sbom_malformed");
+  if (sbomBytes.byteLength > SBOM_RESOURCE_LIMITS.maxSbomBytes)
+    return inconclusive("sbom_size_limit_exceeded");
+  const artifact = object(root.artifact);
+  const sbom = object(root.sbom);
+  const relationship = object(root.relationship);
+  const inventory = object(root.inventory);
+  if (!artifact || !sbom || !inventory)
+    return inconclusive("sbom_malformed");
+  if (root.schema_version !== SBOM_CONSUMER_CONTRACT.envelopeSchema)
+    return inconclusive("sbom_schema_unsupported");
+  let artifactDigest;
+  let declaredArtifact;
+  let declaredSbom;
+  try {
+    artifactDigest = await sha256Artifact(artifactPath);
+    declaredArtifact = digest(artifact.sha256, "artifact_digest_missing", "artifact_digest_malformed") ?? "";
+    declaredSbom = digest(sbom.sha256, "sbom_digest_missing", "sbom_digest_malformed") ?? "";
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "sbom_malformed";
+    if (code === "artifact_digest_malformed")
+      return inconclusive(code);
+    if (code === "sbom_digest_malformed")
+      return inconclusive(code);
+    return inconclusive("sbom_malformed");
+  }
+  if (!declaredArtifact)
+    return inconclusive("artifact_digest_missing");
+  if (!declaredSbom)
+    return inconclusive("sbom_digest_missing");
+  if (declaredArtifact !== artifactDigest)
+    return blocked("artifact_digest_mismatch");
+  const actualSbom = sha256Bytes(sbomBytes);
+  if (declaredSbom !== actualSbom)
+    return blocked("sbom_digest_mismatch");
+  if (artifact.size !== void 0) {
+    const artifactStat = await (0, import_promises2.stat)(artifactPath);
+    if (typeof artifact.size !== "number" || artifact.size < 0 || artifact.size !== artifactStat.size)
+      return inconclusive("artifact_size_mismatch");
+  }
+  if (sbom.size !== void 0 && (typeof sbom.size !== "number" || sbom.size !== sbomBytes.byteLength))
+    return inconclusive("sbom_size_mismatch");
+  if (sbom.format !== SBOM_CONSUMER_CONTRACT.format || sbom.schema_version !== SBOM_CONSUMER_CONTRACT.schemaVersion) {
+    return inconclusive("sbom_format_unsupported");
+  }
+  if (!relationship)
+    return inconclusive("artifact_sbom_binding_missing");
+  if (relationship.artifact_sha256 !== declaredArtifact || relationship.sbom_sha256 !== declaredSbom) {
+    return blocked("artifact_sbom_binding_mismatch");
+  }
+  if (relationship.type !== SBOM_CONSUMER_CONTRACT.relationshipType || relationship.binding !== SBOM_CONSUMER_CONTRACT.binding) {
+    return inconclusive("artifact_sbom_binding_missing");
+  }
+  let parsed;
+  try {
+    const value = JSON.parse(new TextDecoder().decode(sbomBytes));
+    const parsedObject = object(value);
+    if (!parsedObject)
+      return inconclusive("sbom_malformed");
+    parsed = parsedObject;
+  } catch {
+    return inconclusive("sbom_malformed");
+  }
+  const schema = object(parsed.schema);
+  const source = object(parsed.source);
+  const artifacts = parsed.artifacts;
+  if (schema?.version !== SBOM_CONSUMER_CONTRACT.schemaVersion || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
+    return inconclusive("sbom_schema_unsupported");
+  }
+  let sourceDigest;
+  try {
+    sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
+  } catch {
+    return blocked("artifact_sbom_binding_mismatch");
+  }
+  if (sourceDigest !== artifactDigest)
+    return blocked("artifact_sbom_binding_mismatch");
+  if (!Array.isArray(artifacts))
+    return inconclusive("sbom_inventory_missing");
+  if (artifacts.length === 0)
+    return inconclusive("sbom_inventory_empty");
+  if (artifacts.length > SBOM_RESOURCE_LIMITS.maxPackageCount)
+    return inconclusive("sbom_package_limit_exceeded");
+  if (!artifacts.every(isPackageRecord))
+    return inconclusive("sbom_inventory_malformed");
+  const ids = artifacts.map((item) => item.id);
+  if (new Set(ids).size !== ids.length)
+    return inconclusive("sbom_inventory_duplicate_id");
+  if (inventory.status !== "present" || inventory.package_count !== artifacts.length)
+    return inconclusive("sbom_inventory_count_mismatch");
+  return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: SBOM_CONSUMER_CONTRACT.schemaVersion, inventoryStatus: "present", packageCount: artifacts.length };
+}
+
 // src/action.ts
 function workspacePath(input) {
   return (0, import_node_path.isAbsolute)(input) ? input : (0, import_node_path.resolve)(process.env.GITHUB_WORKSPACE ?? process.cwd(), input);
@@ -28670,11 +28832,13 @@ async function runAction() {
   const artifactInput = core.getInput("artifact", { required: true });
   const policyInput = core.getInput("policy", { required: true });
   const evidenceInput = core.getInput("evidence");
+  const sbomEvidenceInput = core.getInput("sbom-evidence");
+  const sbomInput = core.getInput("sbom");
   const receiptPath = workspacePath(receiptInput);
   const artifactPath = workspacePath(artifactInput);
   const policy = policyByName(policyInput);
   const evaluatedAt = /* @__PURE__ */ new Date();
-  const receipt = JSON.parse(await (0, import_promises2.readFile)(receiptPath, "utf8"));
+  const receipt = JSON.parse(await (0, import_promises3.readFile)(receiptPath, "utf8"));
   const verification = await verifyReceipt(receipt, artifactPath, evaluatedAt, {
     maxScanAgeMs: policy.maxScanAgeMs,
     clockSkewMs: policy.clockSkewMs,
@@ -28682,26 +28846,49 @@ async function runAction() {
     requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
   });
   const evaluation = evaluatePolicy(receipt, verification, policy, evaluatedAt);
-  core.setOutput("decision", evaluation.decision);
+  let sbomAdmission = { status: "not-provided", reasonCodes: [] };
+  const sbomInputs = await loadSbomEvidence(
+    sbomEvidenceInput ? workspacePath(sbomEvidenceInput) : void 0,
+    sbomInput ? workspacePath(sbomInput) : void 0
+  );
+  if (sbomInputs.status === "result")
+    sbomAdmission = sbomInputs.result;
+  else if (sbomInputs.status === "inputs") {
+    sbomAdmission = await verifySbomEvidence(artifactPath, sbomInputs.envelope, sbomInputs.sbomBytes);
+  }
+  const effectiveDecision = composeSbomDecision(evaluation.decision, sbomAdmission.status);
+  core.setOutput("decision", effectiveDecision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
   core.setOutput("profile", evaluation.profile);
   core.setOutput("integrity-status", evaluation.integrityStatus);
   core.setOutput("receipt-status", evaluation.receiptStatus);
   core.setOutput("policy-status", evaluation.policyStatus);
-  core.setOutput("admission-status", evaluation.admissionStatus);
+  core.setOutput("admission-status", effectiveDecision);
   core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
-  core.setOutput("reason-codes", evaluation.reasonCodes.join(","));
+  core.setOutput("reason-codes", [...evaluation.reasonCodes, ...sbomAdmission.reasonCodes].join(","));
   core.setOutput("policy-version", evaluation.policyVersion ?? "");
-  core.info(`MCP Evidence Gate decision: ${evaluation.decision.toUpperCase()}`);
-  if (evaluation.decision === "warn") {
+  core.setOutput("sbom-admission-status", sbomAdmission.status);
+  core.setOutput("sbom-reason-codes", sbomAdmission.reasonCodes.join(","));
+  core.setOutput("sbom-format", sbomAdmission.format ?? "");
+  core.setOutput("sbom-schema-version", sbomAdmission.schemaVersion ?? "");
+  core.setOutput("sbom-package-count", sbomAdmission.packageCount?.toString() ?? "");
+  core.info(`MCP Evidence Gate decision: ${effectiveDecision.toUpperCase()}`);
+  core.info(`SBOM evidence: ${sbomAdmission.status.toUpperCase()}`);
+  core.info("Security verdict: NOT EVALUATED BY SBOM CONTRACT");
+  const allReasons = [...evaluation.reasons.map((reason) => `${reason.code}: ${reason.detail}`), ...sbomAdmission.reasonCodes];
+  if (effectiveDecision === "fail") {
+    core.setFailed(`FAIL: ${allReasons.join("; ")}`);
+    return;
+  }
+  if (sbomAdmission.status === "inconclusive") {
+    core.setFailed(`SBOM INCONCLUSIVE: ${allReasons.join("; ")}`);
+    return;
+  }
+  if (effectiveDecision === "warn") {
     core.warning(formatReasons(evaluation.reasons));
     return;
   }
-  if (evaluation.decision === "fail") {
-    core.setFailed(`FAIL: ${formatReasons(evaluation.reasons)}`);
-    return;
-  }
-  if (evaluation.decision === "inconclusive") {
+  if (effectiveDecision === "inconclusive") {
     core.setFailed(`INCONCLUSIVE: evidence does not support this release. ${formatReasons(evaluation.reasons)}`);
   }
 }

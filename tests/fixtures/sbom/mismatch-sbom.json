@@ -1,0 +1,14 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "metadata": {
+    "component": {
+      "type": "container",
+      "name": "fixture-artifact-b",
+      "hashes": [{"alg": "SHA-256", "content": "64b5ffff03d3e946ed0f831ba0e2307e8c0db9babafc7e053d387275fe29e526"}]
+    }
+  },
+  "components": [
+    {"type": "library", "name": "fixture-package-b", "version": "2.0.0", "purl": "pkg:generic/fixture-package-b@2.0.0"}
+  ]
+}

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { evaluateReceiptSet } from "./core/composition.js";
 import { evaluatePolicy, policyByName, type PolicyConfig } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
+import { composeSbomDecision, loadSbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
 import type { ReceiptInput, VerificationResult } from "./core/types.js";
 const packageJson = createRequire(import.meta.url)("../package.json") as { version: string };
 export const CLI_VERSION = packageJson.version;
@@ -25,6 +26,8 @@ interface VerifyArgs extends CommonArgs {
   command: "verify";
   receipt: string;
   evidence?: string;
+  sbomEvidence?: string;
+  sbom?: string;
 }
 
 interface VerifySetArgs extends CommonArgs {
@@ -57,6 +60,8 @@ Options:
   --artifact <path>  Artifact path shared by all receipts (required)
   --policy <name>    permissive, strict-release-example, strict-evidence-example, or strict-scanner-completeness (required)
   --evidence <path>  Optional local evidence report for single-receipt evidence_digest binding
+  --sbom-evidence <path>  Optional SBOM evidence envelope JSON
+  --sbom <path>      Optional exact SBOM bytes referenced by --sbom-evidence
   --format <mode>    text or json (default: text)
   --now <RFC3339>    Evaluation time; defaults to the current time
   --help             Show this help
@@ -97,6 +102,8 @@ function parseArgs(argv: string[]): VerifyArgs | VerifySetArgs | "help" | "versi
   const common: Partial<CommonArgs> = { format: "text" };
   let receipt: string | undefined;
   let evidence: string | undefined;
+  let sbomEvidence: string | undefined;
+  let sbom: string | undefined;
   let set: string | undefined;
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -109,6 +116,8 @@ function parseArgs(argv: string[]): VerifyArgs | VerifySetArgs | "help" | "versi
     if (parseCommonOption(common, flag, value)) continue;
     if (command === "verify" && flag === "--receipt") receipt = value;
     else if (command === "verify" && flag === "--evidence") evidence = value;
+    else if (command === "verify" && flag === "--sbom-evidence") sbomEvidence = value;
+    else if (command === "verify" && flag === "--sbom") sbom = value;
     else if (command === "verify-set" && flag === "--set") set = value;
     else throw new CliInputError(`unknown option for ${command}: ${flag}`);
   }
@@ -118,7 +127,7 @@ function parseArgs(argv: string[]): VerifyArgs | VerifySetArgs | "help" | "versi
   }
   if (command === "verify") {
     if (!receipt) throw new CliInputError("--receipt is required for verify");
-    return { command, receipt, evidence, ...common } as VerifyArgs;
+    return { command, receipt, evidence, sbomEvidence, sbom, ...common } as VerifyArgs;
   }
   if (!set) throw new CliInputError("--set is required for verify-set");
   return { command, set, ...common } as VerifySetArgs;
@@ -171,26 +180,34 @@ function outputModel(
   policy: PolicyConfig,
   verification: VerificationResult,
   receipt: ReceiptInput,
-  evaluatedAt: Date
+  evaluatedAt: Date,
+  sbomAdmission: SbomAdmissionResult
 ) {
   const decision = evaluatePolicy(receipt, verification, policy, evaluatedAt);
+  const effectiveDecision = composeSbomDecision(decision.decision, sbomAdmission.status);
+  const sbomReasons = sbomAdmission.reasonCodes.map((code) => ({ code, detail: `SBOM admission: ${code}` }));
   return {
     tool: "mcp-evidence-gate",
     version: CLI_VERSION,
     profile: decision.profile,
     policy: decision.policy,
     receiptVerdict: decision.receiptVerdict,
-    decision: decision.decision,
+    decision: effectiveDecision,
     integrity_status: decision.integrityStatus,
     receipt_status: decision.receiptStatus,
     policy_status: decision.policyStatus,
-    admission_status: decision.admissionStatus,
+    admission_status: effectiveDecision,
     scanner_execution_status: decision.scannerExecutionStatus,
     reason_codes: decision.reasonCodes,
     ...(decision.policyVersion ? { policy_version: decision.policyVersion } : {}),
     evaluatedAt: verification.evaluatedAt,
     checks: verification.checks,
-    reasons: decision.reasons
+    reasons: [...decision.reasons, ...sbomReasons],
+    sbom_admission_status: sbomAdmission.status,
+    sbom_reason_codes: sbomAdmission.reasonCodes,
+    ...(sbomAdmission.format ? { sbom_format: sbomAdmission.format } : {}),
+    ...(sbomAdmission.schemaVersion ? { sbom_schema_version: sbomAdmission.schemaVersion } : {}),
+    ...(sbomAdmission.packageCount !== undefined ? { sbom_package_count: sbomAdmission.packageCount } : {})
   };
 }
 
@@ -216,6 +233,8 @@ function renderText(model: ReturnType<typeof outputModel>): string {
     `Policy status: ${model.policy_status}`,
     `Admission status: ${model.admission_status}`,
     `Scanner execution: ${model.scanner_execution_status}`,
+    `SBOM evidence: ${model.sbom_admission_status.toUpperCase()}`,
+    "Security verdict: NOT EVALUATED BY SBOM CONTRACT",
     `Evaluated at: ${model.evaluatedAt}`,
     "",
     ...model.checks.map((check) => {
@@ -298,7 +317,14 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
         evidencePath: parsed.evidence,
         requireScannerExecutionCompleteness: policy.requireScannerExecutionCompleteness
       });
-      const model = outputModel(policy, verification, receipt, evaluatedAt);
+      let sbomAdmission: SbomAdmissionResult = { status: "not-provided", reasonCodes: [] };
+      const sbomInputs = await loadSbomEvidence(parsed.sbomEvidence, parsed.sbom);
+      if (sbomInputs.status === "result") sbomAdmission = sbomInputs.result;
+      else if (sbomInputs.status === "inputs") {
+        const { verifySbomEvidence } = await import("./core/sbom.js");
+        sbomAdmission = await verifySbomEvidence(parsed.artifact, sbomInputs.envelope, sbomInputs.sbomBytes);
+      }
+      const model = outputModel(policy, verification, receipt, evaluatedAt, sbomAdmission);
       if (parsed.format === "json") io.stdout(`${JSON.stringify(model, null, 2)}\n`);
       else io.stdout(renderText(model));
       return exitCode(model.decision);
