@@ -28676,7 +28676,7 @@ function classifySyftSourceShape(sourceValue) {
   const metadata = object(source?.metadata);
   if (!metadata)
     return "UNKNOWN";
-  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config", "architecture", "os"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   const fileSignals = ["path", "digests", "mimeType"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   if (imageSignals && fileSignals)
     return "AMBIGUOUS";
@@ -28901,10 +28901,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest) {
         try {
-          if ((await (0, import_promises2.stat)(artifactPath)).size > maxEmbeddedManifestBytes) {
-            return blocked("artifact_sbom_binding_mismatch");
-          }
-          const artifactBytes = await (0, import_promises2.readFile)(artifactPath);
+          const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest)
             return blocked("artifact_sbom_binding_mismatch");
           const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
@@ -28913,6 +28910,8 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
           if (parsedConfig.state !== "valid")
             return blocked("artifact_sbom_binding_mismatch");
           configDigest = parsedConfig.digest;
+          embeddedConfigDocument = config;
+          embeddedLayers = artifactDocument?.layers;
         } catch {
           return blocked("artifact_sbom_binding_mismatch");
         }
@@ -28926,6 +28925,9 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
           return blocked("artifact_sbom_binding_mismatch");
         }
       }
+    }
+    if (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) && !embeddedConfigDocument) {
+      return blocked("artifact_sbom_binding_mismatch");
     }
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
       if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || metadata.layers.length !== embeddedLayers.length) {
@@ -28985,6 +28987,18 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   if (inventory.status !== "present" || inventory.package_count !== artifacts.length)
     return inconclusive("sbom_inventory_count_mismatch");
   return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: schema.version, inventoryStatus: "present", packageCount: artifacts.length };
+}
+async function readBoundedArtifact(path) {
+  const handle = await (0, import_promises2.open)(path, "r");
+  try {
+    const buffer = Buffer.alloc(maxEmbeddedManifestBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > maxEmbeddedManifestBytes)
+      throw new Error("artifact_too_large");
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
 }
 function parseOptionalIdentityField(container, key, allowBareHex) {
   if (!container || !Object.prototype.hasOwnProperty.call(container, key))

@@ -1,5 +1,5 @@
 import { parseDigest, sha256Bytes, sha256Artifact } from "./digest.js";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 
 export type SbomAdmissionStatus = "pass" | "inconclusive" | "blocked" | "not-provided";
 
@@ -47,7 +47,7 @@ export function classifySyftSourceShape(sourceValue: unknown): SyftSourceShape {
   const source = object(sourceValue);
   const metadata = object(source?.metadata);
   if (!metadata) return "UNKNOWN";
-  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config"]
+  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config", "architecture", "os"]
     .some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   const fileSignals = ["path", "digests", "mimeType"]
     .some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
@@ -282,16 +282,15 @@ export async function verifySbomEvidence(
       let configDigest = embeddedConfigDigest;
       if (!configDigest) {
         try {
-          if ((await stat(artifactPath)).size > maxEmbeddedManifestBytes) {
-            return blocked("artifact_sbom_binding_mismatch");
-          }
-          const artifactBytes = await readFile(artifactPath);
+          const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
           const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
           const config = object(artifactDocument?.config);
           const parsedConfig = parseOptionalIdentityField(config, "digest", false);
           if (parsedConfig.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
           configDigest = parsedConfig.digest;
+          embeddedConfigDocument = config;
+          embeddedLayers = artifactDocument?.layers;
         } catch {
           return blocked("artifact_sbom_binding_mismatch");
         }
@@ -304,6 +303,9 @@ export async function verifySbomEvidence(
           return blocked("artifact_sbom_binding_mismatch");
         }
       }
+    }
+    if (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) && !embeddedConfigDocument) {
+      return blocked("artifact_sbom_binding_mismatch");
     }
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
       if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || metadata.layers.length !== embeddedLayers.length) {
@@ -351,6 +353,18 @@ export async function verifySbomEvidence(
   if (new Set(ids).size !== ids.length) return inconclusive("sbom_inventory_duplicate_id");
   if (inventory.status !== "present" || inventory.package_count !== artifacts.length) return inconclusive("sbom_inventory_count_mismatch");
   return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: schema.version, inventoryStatus: "present", packageCount: artifacts.length };
+}
+
+async function readBoundedArtifact(path: string): Promise<Buffer> {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(maxEmbeddedManifestBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > maxEmbeddedManifestBytes) throw new Error("artifact_too_large");
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
 }
 
 function parseOptionalIdentityField(container: Record<string, unknown> | undefined, key: string, allowBareHex: boolean): OptionalIdentity {
