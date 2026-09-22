@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
-import { loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
+import { SBOM_CONSUMER_CONTRACT, loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
 import { sha256Bytes } from "../src/core/digest.js";
 
 const fixtureRoot = join(process.cwd(), "tests", "fixtures", "sbom");
@@ -23,8 +23,13 @@ async function makeFixture(schemaVersion: QualifiedSchema) {
   await writeFile(artifactPath, artifactBytes);
   const artifactDigest = sha256Bytes(artifactBytes);
   const otherDigest = sha256Bytes(new TextEncoder().encode("other-artifact"));
-  const document = JSON.parse(await readFile(fixtureFiles[schemaVersion], "utf8")) as Record<string, any>;
-  document.source.version = artifactDigest;
+  // Synthetic matrix fixture: keep this separate from the real OCI fixture so
+  // the qualification matrix cannot hide a source-binding mutation.
+  const document = {
+    schema: { version: schemaVersion },
+    source: { name: "synthetic-artifact", version: artifactDigest },
+    artifacts: [{ id: "pkg-1", name: "qualification-package", version: "1.0.0", type: "deb" }]
+  } as Record<string, any>;
   const sbomBytes = new TextEncoder().encode(JSON.stringify(document));
   const envelope = (bytes = sbomBytes, options: { artifactSha?: string; source?: string; binding?: string; count?: number } = {}) => ({
     schema_version: "project-defined-sbom-evidence-v1",
@@ -84,6 +89,10 @@ afterEach(async () => {
 });
 
 describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
+  it("exports one complete schema allowlist used by the consumer", () => {
+    expect(SBOM_CONSUMER_CONTRACT.schemaVersions).toEqual(["16.1.3", "16.1.10"]);
+  });
+
   it("keeps the complete admission matrix semantically equivalent", async () => {
     const oldSchema = await runCases("16.1.3");
     const newSchema = await runCases("16.1.10");
@@ -117,5 +126,32 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     (futureEnvelope.sbom as Record<string, unknown>).schema_version = "16.1.11";
     const result = await verifySbomEvidence(f.artifactPath, futureEnvelope, futureBytes);
     expect(result).toMatchObject({ status: "inconclusive", reasonCodes: ["sbom_schema_unsupported"] });
+  });
+
+  it("qualifies the real 16.1.10 SBOM against exact OCI manifest bytes", async () => {
+    const realArtifactPath = join(fixtureRoot, "github-mcp-server-a44e77b-manifest.json");
+    const mismatchArtifactPath = join(fixtureRoot, "ibm-mcp-context-forge-dd0998-manifest.json");
+    const realSbomPath = fixtureFiles["16.1.10"];
+    const artifactBytes = new Uint8Array(await readFile(realArtifactPath));
+    const sbomBytes = new Uint8Array(await readFile(realSbomPath));
+    const mismatchBytes = new Uint8Array(await readFile(mismatchArtifactPath));
+    const document = JSON.parse(new TextDecoder().decode(sbomBytes)) as Record<string, any>;
+    const realDigest = sha256Bytes(artifactBytes);
+    const mismatchDigest = sha256Bytes(mismatchBytes);
+    expect(realDigest).toBe("sha256:a44e77b9c9003ed0e228716d118aa4ce9f3418dce30fe2340c71553164bd96f0");
+    expect(document.source.version).toBe(realDigest);
+    const envelope = (artifactSha: string, relationshipArtifactSha = artifactSha, bytes = sbomBytes, artifactSize = artifactBytes.byteLength) => ({
+      schema_version: SBOM_CONSUMER_CONTRACT.envelopeSchema,
+      artifact: { ref: "ghcr.io/github/github-mcp-server@" + realDigest, sha256: artifactSha, size: artifactSize },
+      sbom: { format: SBOM_CONSUMER_CONTRACT.format, schema_version: "16.1.10", sha256: sha256Bytes(bytes), size: bytes.byteLength },
+      relationship: { type: SBOM_CONSUMER_CONTRACT.relationshipType, artifact_sha256: relationshipArtifactSha, sbom_sha256: sha256Bytes(bytes), binding: SBOM_CONSUMER_CONTRACT.binding },
+      inventory: { status: "present", package_count: document.artifacts.length }
+    });
+    const exact = await verifySbomEvidence(realArtifactPath, envelope(realDigest), sbomBytes);
+    expect(exact).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const tampered = await verifySbomEvidence(realArtifactPath, envelope(realDigest), Uint8Array.from([...sbomBytes, 0x0a]));
+    expect(tampered).toMatchObject({ status: "blocked", reasonCodes: ["sbom_digest_mismatch"] });
+    const mismatch = await verifySbomEvidence(mismatchArtifactPath, envelope(mismatchDigest, realDigest, sbomBytes, mismatchBytes.byteLength), sbomBytes);
+    expect(mismatch).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
   });
 });

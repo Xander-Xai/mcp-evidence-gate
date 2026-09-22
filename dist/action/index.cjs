@@ -28660,14 +28660,14 @@ async function verifyReceipt(receipt, artifactPath, now, freshnessOptions = {}) 
 
 // src/core/sbom.ts
 var import_promises2 = require("node:fs/promises");
-var SUPPORTED_SYFT_JSON_SCHEMAS = /* @__PURE__ */ new Set(["16.1.3", "16.1.10"]);
 var SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
-  schemaVersion: "16.1.3",
+  schemaVersions: Object.freeze(["16.1.3", "16.1.10"]),
   relationshipType: "generated-from",
   binding: "exact-artifact"
 });
+var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 var SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1e6
@@ -28772,7 +28772,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     return inconclusive("sbom_size_mismatch");
   if (sbom.format !== SBOM_CONSUMER_CONTRACT.format)
     return inconclusive("sbom_format_unsupported");
-  if (typeof sbom.schema_version !== "string" || !SUPPORTED_SYFT_JSON_SCHEMAS.has(sbom.schema_version)) {
+  if (typeof sbom.schema_version !== "string" || !supportedSchemaVersions.has(sbom.schema_version)) {
     return inconclusive("sbom_schema_unsupported");
   }
   if (!relationship)
@@ -28796,7 +28796,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   const schema = object(parsed.schema);
   const source = object(parsed.source);
   const artifacts = parsed.artifacts;
-  if (typeof schema?.version !== "string" || !SUPPORTED_SYFT_JSON_SCHEMAS.has(schema.version) || schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
+  if (typeof schema?.version !== "string" || !supportedSchemaVersions.has(schema.version) || schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
   let sourceDigest;

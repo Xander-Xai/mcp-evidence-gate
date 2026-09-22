@@ -22,16 +22,16 @@ export interface SbomAdmissionResult {
 
 export type CoreDecision = "pass" | "warn" | "inconclusive" | "fail";
 
-/** Explicitly qualified Syft JSON schema versions; never widen this to a range. */
-const SUPPORTED_SYFT_JSON_SCHEMAS = new Set(["16.1.3", "16.1.10"]);
-
 export const SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
-  schemaVersion: "16.1.3",
+  schemaVersions: Object.freeze(["16.1.3", "16.1.10"] as const),
   relationshipType: "generated-from",
   binding: "exact-artifact"
 } as const);
+
+/** Explicitly qualified Syft JSON schema versions; never widen this to a range. */
+const supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 
 // Explicit, exported policy values. They are intentionally conservative
 // bounds pending a larger corpus benchmark; callers cannot silently change
@@ -151,7 +151,7 @@ export async function verifySbomEvidence(
   if (sbom.size !== undefined && (typeof sbom.size !== "number" || sbom.size !== sbomBytes.byteLength)) return inconclusive("sbom_size_mismatch");
 
   if (sbom.format !== SBOM_CONSUMER_CONTRACT.format) return inconclusive("sbom_format_unsupported");
-  if (typeof sbom.schema_version !== "string" || !SUPPORTED_SYFT_JSON_SCHEMAS.has(sbom.schema_version)) {
+  if (typeof sbom.schema_version !== "string" || !supportedSchemaVersions.has(sbom.schema_version as (typeof SBOM_CONSUMER_CONTRACT.schemaVersions)[number])) {
     return inconclusive("sbom_schema_unsupported");
   }
   if (!relationship) return inconclusive("artifact_sbom_binding_missing");
@@ -174,7 +174,7 @@ export async function verifySbomEvidence(
   const schema = object(parsed.schema);
   const source = object(parsed.source);
   const artifacts = parsed.artifacts;
-  if (typeof schema?.version !== "string" || !SUPPORTED_SYFT_JSON_SCHEMAS.has(schema.version) ||
+  if (typeof schema?.version !== "string" || !supportedSchemaVersions.has(schema.version as (typeof SBOM_CONSUMER_CONTRACT.schemaVersions)[number]) ||
       schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
