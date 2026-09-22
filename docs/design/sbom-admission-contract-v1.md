@@ -85,6 +85,7 @@ The first allowlist contains only the format exercised by the real pilot:
 type ConsumerSbomContract = {
   format: "syft-json";
   supportedSchemaVersions: ["16.1.3", "16.1.10"];
+  sourceTypes: ["file", "image"];
   binding: "exact-artifact";
   requiredEvidence: [
     "artifact_identity",
@@ -107,7 +108,20 @@ Syft JSON uses schema `16.1.3` and Wave-3.7 qualified `16.1.10`; both use `artif
 the descriptor. Fixture assumptions are therefore subordinate to the real
 Syft shape. CycloneDX and SPDX remain **NOT YET VERIFIED**.
 
-## 5. Identity and relationship rules
+## 5. Source-type binding
+
+Source type is part of the consumer-owned admission contract. v1 admits only
+the qualified Syft source types `file` and `image`; missing or unknown values
+are not treated as legacy files. Image-shaped metadata (at minimum
+`source.metadata.manifestDigest`) with a non-image type is contradictory and
+fails closed. For `image`, both `source.id` and
+`source.metadata.manifestDigest` must identify the exact resolved manifest
+bytes when present; `source.version` is requested-reference provenance and is
+not resolved-manifest proof. For `file`, `source.version` remains the primary
+qualified identity and any supplied SHA-256 entry in `source.metadata.digests`
+must agree with the artifact bytes.
+
+## 6. Identity and relationship rules
 
 ### Artifact identity
 

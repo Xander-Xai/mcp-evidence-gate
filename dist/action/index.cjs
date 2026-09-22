@@ -28664,10 +28664,12 @@ var SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
   schemaVersions: Object.freeze(["16.1.3", "16.1.10"]),
+  sourceTypes: Object.freeze(["file", "image"]),
   relationshipType: "generated-from",
   binding: "exact-artifact"
 });
 var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
+var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
 var SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1e6
@@ -28799,8 +28801,18 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   if (typeof schema?.version !== "string" || !supportedSchemaVersions.has(schema.version) || schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
-  if (source.type === "image") {
-    const metadata = object(source.metadata);
+  const sourceType = source.type;
+  const metadata = object(source.metadata);
+  const hasImageSourceMetadata = nonEmptyString(metadata?.manifestDigest);
+  if (hasImageSourceMetadata && sourceType !== "image") {
+    return sourceType === void 0 ? inconclusive("artifact_sbom_binding_missing") : blocked("artifact_sbom_binding_mismatch");
+  }
+  if (typeof sourceType !== "string")
+    return inconclusive("artifact_sbom_binding_missing");
+  if (!supportedSourceTypes.has(sourceType)) {
+    return inconclusive("sbom_source_type_unsupported");
+  }
+  if (sourceType === "image") {
     const resolvedId = source.id;
     const manifestDigest = metadata?.manifestDigest;
     if (!nonEmptyString(resolvedId) && !nonEmptyString(manifestDigest)) {
@@ -28820,7 +28832,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (resolvedIdDigest && resolvedIdDigest !== artifactDigest || manifestDigestValue && manifestDigestValue !== artifactDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-  } else {
+  } else if (sourceType === "file") {
     let sourceDigest;
     try {
       sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
@@ -28829,6 +28841,15 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     }
     if (sourceDigest !== artifactDigest)
       return blocked("artifact_sbom_binding_mismatch");
+    const fileDigests = metadata?.digests;
+    if (fileDigests !== void 0) {
+      if (!Array.isArray(fileDigests))
+        return inconclusive("artifact_sbom_binding_missing");
+      const sha256Values = fileDigests.filter((item) => object(item)?.algorithm === "sha256").map((item) => object(item)?.value).filter(nonEmptyString);
+      if (sha256Values.length > 0 && sha256Values.some((value) => `sha256:${value}` !== artifactDigest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
   }
   if (!Array.isArray(artifacts))
     return inconclusive("sbom_inventory_missing");

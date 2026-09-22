@@ -26,12 +26,14 @@ export const SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
   schemaVersions: Object.freeze(["16.1.3", "16.1.10"] as const),
+  sourceTypes: Object.freeze(["file", "image"] as const),
   relationshipType: "generated-from",
   binding: "exact-artifact"
 } as const);
 
 /** Explicitly qualified Syft JSON schema versions; never widen this to a range. */
 const supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
+const supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
 
 // Explicit, exported policy values. They are intentionally conservative
 // bounds pending a larger corpus benchmark; callers cannot silently change
@@ -178,8 +180,19 @@ export async function verifySbomEvidence(
       schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
-  if (source.type === "image") {
-    const metadata = object(source.metadata);
+  const sourceType = source.type;
+  const metadata = object(source.metadata);
+  const hasImageSourceMetadata = nonEmptyString(metadata?.manifestDigest);
+  if (hasImageSourceMetadata && sourceType !== "image") {
+    return sourceType === undefined
+      ? inconclusive("artifact_sbom_binding_missing")
+      : blocked("artifact_sbom_binding_mismatch");
+  }
+  if (typeof sourceType !== "string") return inconclusive("artifact_sbom_binding_missing");
+  if (!supportedSourceTypes.has(sourceType as (typeof SBOM_CONSUMER_CONTRACT.sourceTypes)[number])) {
+    return inconclusive("sbom_source_type_unsupported");
+  }
+  if (sourceType === "image") {
     const resolvedId = source.id;
     const manifestDigest = metadata?.manifestDigest;
     if (!nonEmptyString(resolvedId) && !nonEmptyString(manifestDigest)) {
@@ -204,11 +217,22 @@ export async function verifySbomEvidence(
         (manifestDigestValue && manifestDigestValue !== artifactDigest)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-  } else {
+  } else if (sourceType === "file") {
     let sourceDigest: string;
     try { sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? ""; }
     catch { return blocked("artifact_sbom_binding_mismatch"); }
     if (sourceDigest !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
+    const fileDigests = metadata?.digests;
+    if (fileDigests !== undefined) {
+      if (!Array.isArray(fileDigests)) return inconclusive("artifact_sbom_binding_missing");
+      const sha256Values = fileDigests
+        .filter((item) => object(item)?.algorithm === "sha256")
+        .map((item) => object(item)?.value)
+        .filter(nonEmptyString);
+      if (sha256Values.length > 0 && sha256Values.some((value) => `sha256:${value}` !== artifactDigest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
   }
   if (!Array.isArray(artifacts)) return inconclusive("sbom_inventory_missing");
   if (artifacts.length === 0) return inconclusive("sbom_inventory_empty");

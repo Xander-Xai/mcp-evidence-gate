@@ -27,7 +27,7 @@ async function makeFixture(schemaVersion: QualifiedSchema) {
   // the qualification matrix cannot hide a source-binding mutation.
   const document = {
     schema: { version: schemaVersion },
-    source: { name: "synthetic-artifact", version: artifactDigest },
+    source: { name: "synthetic-artifact", version: artifactDigest, type: "file", metadata: { digests: [{ algorithm: "sha256", value: artifactDigest.slice("sha256:".length) }] } },
     artifacts: [{ id: "pkg-1", name: "qualification-package", version: "1.0.0", type: "deb" }]
   } as Record<string, any>;
   const sbomBytes = new TextEncoder().encode(JSON.stringify(document));
@@ -91,6 +91,7 @@ afterEach(async () => {
 describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
   it("exports one complete schema allowlist used by the consumer", () => {
     expect(SBOM_CONSUMER_CONTRACT.schemaVersions).toEqual(["16.1.3", "16.1.10"]);
+    expect(SBOM_CONSUMER_CONTRACT.sourceTypes).toEqual(["file", "image"]);
   });
 
   it("keeps the complete admission matrix semantically equivalent", async () => {
@@ -179,5 +180,11 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.id; delete source.metadata.manifestDigest; }))
       .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+    expect(await withSource((source) => { source.type = "file"; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { delete source.type; }))
+      .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+    expect(await withSource((source) => { source.type = "unknown-test-type"; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
   });
 });
