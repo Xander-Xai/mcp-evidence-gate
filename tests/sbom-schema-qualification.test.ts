@@ -225,6 +225,8 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.imageID = "invalid"; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { delete source.metadata.manifest; source.metadata.imageID = "sha256:" + "0".repeat(64); }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.id = requestedDigest.slice("sha256:".length); }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.manifestDigest = null; }))

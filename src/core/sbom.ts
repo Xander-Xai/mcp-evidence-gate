@@ -234,6 +234,9 @@ export async function verifySbomEvidence(
         (manifestDigestValue && manifestDigestValue !== artifactDigest)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    const imageId = parseOptionalIdentityField(metadata, "imageID", false);
+    if (imageId.state === "malformed") return blocked("artifact_sbom_binding_mismatch");
+    let embeddedConfigDigest: string | undefined;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
       if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
@@ -249,14 +252,25 @@ export async function verifySbomEvidence(
         if (!parsedEmbedded || !config) return blocked("artifact_sbom_binding_mismatch");
         const configDigest = parseOptionalIdentityField(config, "digest", false);
         if (configDigest.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
-        const imageId = parseOptionalIdentityField(metadata, "imageID", false);
-        if (imageId.state === "malformed" ||
-            (imageId.state === "valid" && imageId.digest !== configDigest.digest)) {
-          return blocked("artifact_sbom_binding_mismatch");
-        }
+        embeddedConfigDigest = configDigest.digest;
       } catch {
         return blocked("artifact_sbom_binding_mismatch");
       }
+    }
+    if (imageId.state === "valid") {
+      let configDigest = embeddedConfigDigest;
+      if (!configDigest) {
+        try {
+          const artifactDocument = object(JSON.parse((await readFile(artifactPath)).toString("utf8")));
+          const config = object(artifactDocument?.config);
+          const parsedConfig = parseOptionalIdentityField(config, "digest", false);
+          if (parsedConfig.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
+          configDigest = parsedConfig.digest;
+        } catch {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+      if (imageId.digest !== configDigest) return blocked("artifact_sbom_binding_mismatch");
     }
   } else if (sourceType === "file") {
     let sourceDigest: string;
