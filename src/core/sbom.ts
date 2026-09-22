@@ -41,6 +41,7 @@ export const SBOM_CONSUMER_CONTRACT = Object.freeze({
 /** Explicitly qualified Syft JSON schema versions; never widen this to a range. */
 const supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 const supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
+const maxEmbeddedManifestBytes = 4 * 1024 * 1024;
 
 export function classifySyftSourceShape(sourceValue: unknown): SyftSourceShape {
   const source = object(sourceValue);
@@ -257,10 +258,22 @@ export async function verifySbomEvidence(
         return blocked("artifact_sbom_binding_mismatch");
       }
     }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "config")) {
+      const encodedConfig = metadata.config;
+      if (typeof encodedConfig !== "string" || !isCanonicalBase64(encodedConfig) || imageId.state !== "valid") {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (sha256Bytes(Buffer.from(encodedConfig, "base64")) !== imageId.digest) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
     if (imageId.state === "valid") {
       let configDigest = embeddedConfigDigest;
       if (!configDigest) {
         try {
+          if ((await stat(artifactPath)).size > maxEmbeddedManifestBytes) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
           const artifactDocument = object(JSON.parse((await readFile(artifactPath)).toString("utf8")));
           const config = object(artifactDocument?.config);
           const parsedConfig = parseOptionalIdentityField(config, "digest", false);
