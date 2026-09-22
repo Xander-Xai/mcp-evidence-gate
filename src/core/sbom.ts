@@ -238,6 +238,8 @@ export async function verifySbomEvidence(
     const imageId = parseOptionalIdentityField(metadata, "imageID", false);
     if (imageId.state === "malformed") return blocked("artifact_sbom_binding_mismatch");
     let embeddedConfigDigest: string | undefined;
+    let embeddedConfigDocument: Record<string, unknown> | undefined;
+    let embeddedLayers: unknown;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
       if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
@@ -254,6 +256,8 @@ export async function verifySbomEvidence(
         const configDigest = parseOptionalIdentityField(config, "digest", false);
         if (configDigest.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
         embeddedConfigDigest = configDigest.digest;
+        embeddedConfigDocument = config;
+        embeddedLayers = parsedEmbedded.layers;
       } catch {
         return blocked("artifact_sbom_binding_mismatch");
       }
@@ -263,9 +267,16 @@ export async function verifySbomEvidence(
       if (typeof encodedConfig !== "string" || !isCanonicalBase64(encodedConfig) || imageId.state !== "valid") {
         return blocked("artifact_sbom_binding_mismatch");
       }
-      if (sha256Bytes(Buffer.from(encodedConfig, "base64")) !== imageId.digest) {
+      const configBytes = Buffer.from(encodedConfig, "base64");
+      if (sha256Bytes(configBytes) !== imageId.digest) {
         return blocked("artifact_sbom_binding_mismatch");
       }
+      try {
+        embeddedConfigDocument = object(JSON.parse(configBytes.toString("utf8")));
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (!embeddedConfigDocument) return blocked("artifact_sbom_binding_mismatch");
     }
     if (imageId.state === "valid") {
       let configDigest = embeddedConfigDigest;
@@ -274,7 +285,9 @@ export async function verifySbomEvidence(
           if ((await stat(artifactPath)).size > maxEmbeddedManifestBytes) {
             return blocked("artifact_sbom_binding_mismatch");
           }
-          const artifactDocument = object(JSON.parse((await readFile(artifactPath)).toString("utf8")));
+          const artifactBytes = await readFile(artifactPath);
+          if (sha256Bytes(artifactBytes) !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
+          const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
           const config = object(artifactDocument?.config);
           const parsedConfig = parseOptionalIdentityField(config, "digest", false);
           if (parsedConfig.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
@@ -284,6 +297,27 @@ export async function verifySbomEvidence(
         }
       }
       if (imageId.digest !== configDigest) return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (embeddedConfigDocument && metadata) {
+      for (const field of ["architecture", "os"] as const) {
+        if (Object.prototype.hasOwnProperty.call(metadata, field) && metadata[field] !== embeddedConfigDocument[field]) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
+      if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || metadata.layers.length !== embeddedLayers.length) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      for (let index = 0; index < metadata.layers.length; index += 1) {
+        const sourceLayer = object(metadata.layers[index]);
+        const manifestLayer = object(embeddedLayers[index]);
+        const sourceDigest = parseOptionalIdentityField(sourceLayer, "digest", false);
+        const manifestDigest = parseOptionalIdentityField(manifestLayer, "digest", false);
+        if (sourceDigest.state !== "valid" || manifestDigest.state !== "valid" || sourceDigest.digest !== manifestDigest.digest) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
     }
   } else if (sourceType === "file") {
     let sourceDigest: string;
