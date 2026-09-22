@@ -235,6 +235,19 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.config = Buffer.from("tampered-config").toString("base64"); }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => {
+      delete source.metadata.imageID;
+      delete source.metadata.architecture;
+      delete source.metadata.os;
+      delete source.metadata.layers;
+    })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => {
+      delete source.metadata.imageID;
+      delete source.metadata.architecture;
+      delete source.metadata.os;
+      delete source.metadata.layers;
+      source.metadata.config = Buffer.from(JSON.stringify({ architecture: "amd64", os: "linux" })).toString("base64");
+    })).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.id = requestedDigest.slice("sha256:".length); }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.manifestDigest = null; }))
@@ -293,6 +306,11 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     const layersWithoutManifestBytes = new TextEncoder().encode(JSON.stringify(layersWithoutManifest));
     const layersWithoutManifestResult = await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, layersWithoutManifestBytes), layersWithoutManifestBytes);
     expect(layersWithoutManifestResult).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const fallbackConfigTamper = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
+    fallbackConfigTamper.source.metadata.config = Buffer.from(JSON.stringify({ architecture: "amd64", os: "linux" })).toString("base64");
+    const fallbackConfigTamperBytes = new TextEncoder().encode(JSON.stringify(fallbackConfigTamper));
+    expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, fallbackConfigTamperBytes), fallbackConfigTamperBytes))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
 
     for (const mutate of [
       (layers: any[]) => { layers[0].digest = "sha256:" + "0".repeat(64); },

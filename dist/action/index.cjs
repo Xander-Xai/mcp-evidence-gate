@@ -28914,7 +28914,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       if (!embeddedConfigDocument)
         return blocked("artifact_sbom_binding_mismatch");
     }
-    const needsArtifactManifest = imageId.state === "valid" || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
+    if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {

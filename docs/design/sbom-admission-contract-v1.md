@@ -347,3 +347,9 @@ binding. Manifest fallback is demand-driven: config, platform, or layer
 validation independently requires loading the exact bound artifact manifest when
 no verified embedded manifest is available. Layer equality remains fail-closed
 and does not depend on an optional `imageID` claim.
+
+Every supplied `metadata.config` payload is independently bound to the exact
+image manifest `config.digest`. `imageID` is an additional config identity
+claim, not a prerequisite for config-payload binding; verified embedded
+manifests are preferred and the exact bounded artifact-manifest fallback is
+used when needed.
