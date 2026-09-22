@@ -129,6 +129,11 @@ Deleting or corrupting one image field therefore cannot downgrade the
 remaining image-shaped evidence into file binding. Missing source type remains
 inconclusive, and unsupported source types are never inferred as files.
 
+For security-sensitive source identity fields, field absence and field
+malformation are distinct states. A present but malformed `source.id` or
+`source.metadata.manifestDigest` fails closed with
+`artifact_sbom_binding_mismatch` and cannot be treated as absent.
+
 ## 6. Identity and relationship rules
 
 ### Artifact identity

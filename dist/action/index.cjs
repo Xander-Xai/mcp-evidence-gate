@@ -28833,19 +28833,16 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   if (sourceType === "image" && sourceShape !== "IMAGE")
     return sourceShape === "FILE" ? inconclusive("artifact_sbom_binding_missing") : inconclusive("artifact_sbom_binding_missing");
   if (sourceType === "image") {
-    const resolvedId = source.id;
-    const manifestDigest = metadata?.manifestDigest;
-    if (!nonEmptyString(resolvedId) && !nonEmptyString(manifestDigest)) {
-      return inconclusive("artifact_sbom_binding_missing");
-    }
-    let resolvedIdDigest;
-    let manifestDigestValue;
-    try {
-      resolvedIdDigest = nonEmptyString(resolvedId) ? sourceIdentityDigest(resolvedId, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") : void 0;
-      manifestDigestValue = nonEmptyString(manifestDigest) ? digest(manifestDigest, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") : void 0;
-    } catch {
+    const sourceId = parseOptionalIdentityField(source, "id", true);
+    const manifest = parseOptionalIdentityField(metadata, "manifestDigest", false);
+    if (sourceId.state === "malformed" || manifest.state === "malformed") {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    if (sourceId.state === "absent" && manifest.state === "absent") {
+      return inconclusive("artifact_sbom_binding_missing");
+    }
+    const resolvedIdDigest = sourceId.state === "valid" ? sourceId.digest : void 0;
+    const manifestDigestValue = manifest.state === "valid" ? manifest.digest : void 0;
     if (resolvedIdDigest && manifestDigestValue && resolvedIdDigest !== manifestDigestValue) {
       return blocked("artifact_sbom_binding_mismatch");
     }
@@ -28886,10 +28883,19 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     return inconclusive("sbom_inventory_count_mismatch");
   return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: schema.version, inventoryStatus: "present", packageCount: artifacts.length };
 }
-function sourceIdentityDigest(value, missingCode, malformedCode) {
-  if (typeof value === "string" && /^[a-f0-9]{64}$/.test(value))
-    return `sha256:${value}`;
-  return digest(value, missingCode, malformedCode);
+function parseOptionalIdentityField(container, key, allowBareHex) {
+  if (!container || !Object.prototype.hasOwnProperty.call(container, key))
+    return { state: "absent" };
+  const value = container[key];
+  if (allowBareHex && typeof value === "string" && /^[a-f0-9]{64}$/.test(value)) {
+    return { state: "valid", digest: `sha256:${value}` };
+  }
+  try {
+    const parsed = parseDigest(value);
+    return { state: "valid", digest: `sha256:${parsed.hex}` };
+  } catch {
+    return { state: "malformed" };
+  }
 }
 
 // src/action.ts
