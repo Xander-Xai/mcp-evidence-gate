@@ -28,7 +28,7 @@ export interface ScannerExecutionContractExpectation {
 /** Consumer-owned policy registry. Producer evidence is never authoritative for these values. */
 export const CONSUMER_SCANNER_CONTRACTS: readonly ScannerExecutionContractExpectation[] = [
   { receiptScanner: "trivy", scannerContract: "trivy-fs-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
-  { receiptScanner: "trivy", scannerContract: "trivy-fs-npm-package-view-v1", requiredComponents: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"], allowedExitCodes: [0] },
+  { receiptScanner: "trivy", scannerContract: "trivy-fs-npm-package-view-v1", requiredComponents: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "coverage_determination", "result_semantics"], allowedExitCodes: [0] },
   { receiptScanner: "osv-scanner", scannerContract: "osv-scanner-v2-lockfile-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "source_binding", "result_semantics"], allowedExitCodes: [0, 1] },
   { receiptScanner: "trivy", scannerContract: "trivy-oci-image-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
   // Compatibility for the pre-v2 fixture contract; real scanner contracts above remain strict.
