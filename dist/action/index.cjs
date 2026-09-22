@@ -28670,6 +28670,21 @@ var SBOM_CONSUMER_CONTRACT = Object.freeze({
 });
 var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
+function classifySyftSourceShape(sourceValue) {
+  const source = object(sourceValue);
+  const metadata = object(source?.metadata);
+  if (!metadata)
+    return "UNKNOWN";
+  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const fileSignals = ["path", "digests", "mimeType"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  if (imageSignals && fileSignals)
+    return "AMBIGUOUS";
+  if (imageSignals)
+    return "IMAGE";
+  if (fileSignals)
+    return "FILE";
+  return "UNKNOWN";
+}
 var SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1e6
@@ -28803,15 +28818,20 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   }
   const sourceType = source.type;
   const metadata = object(source.metadata);
-  const hasImageSourceMetadata = nonEmptyString(metadata?.manifestDigest);
-  if (hasImageSourceMetadata && sourceType !== "image") {
-    return sourceType === void 0 ? inconclusive("artifact_sbom_binding_missing") : blocked("artifact_sbom_binding_mismatch");
-  }
+  const sourceShape = classifySyftSourceShape(source);
+  if (sourceShape === "AMBIGUOUS")
+    return blocked("artifact_sbom_binding_mismatch");
   if (typeof sourceType !== "string")
     return inconclusive("artifact_sbom_binding_missing");
   if (!supportedSourceTypes.has(sourceType)) {
+    if (sourceShape === "IMAGE")
+      return blocked("artifact_sbom_binding_mismatch");
     return inconclusive("sbom_source_type_unsupported");
   }
+  if (sourceType === "file" && sourceShape !== "FILE")
+    return sourceShape === "IMAGE" ? blocked("artifact_sbom_binding_mismatch") : inconclusive("artifact_sbom_binding_missing");
+  if (sourceType === "image" && sourceShape !== "IMAGE")
+    return sourceShape === "FILE" ? inconclusive("artifact_sbom_binding_missing") : inconclusive("artifact_sbom_binding_missing");
   if (sourceType === "image") {
     const resolvedId = source.id;
     const manifestDigest = metadata?.manifestDigest;

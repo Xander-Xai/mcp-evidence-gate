@@ -22,6 +22,8 @@ export interface SbomAdmissionResult {
 
 export type CoreDecision = "pass" | "warn" | "inconclusive" | "fail";
 
+export type SyftSourceShape = "FILE" | "IMAGE" | "AMBIGUOUS" | "UNKNOWN";
+
 export const SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
@@ -34,6 +36,20 @@ export const SBOM_CONSUMER_CONTRACT = Object.freeze({
 /** Explicitly qualified Syft JSON schema versions; never widen this to a range. */
 const supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 const supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
+
+export function classifySyftSourceShape(sourceValue: unknown): SyftSourceShape {
+  const source = object(sourceValue);
+  const metadata = object(source?.metadata);
+  if (!metadata) return "UNKNOWN";
+  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest"]
+    .some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const fileSignals = ["path", "digests", "mimeType"]
+    .some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  if (imageSignals && fileSignals) return "AMBIGUOUS";
+  if (imageSignals) return "IMAGE";
+  if (fileSignals) return "FILE";
+  return "UNKNOWN";
+}
 
 // Explicit, exported policy values. They are intentionally conservative
 // bounds pending a larger corpus benchmark; callers cannot silently change
@@ -182,16 +198,19 @@ export async function verifySbomEvidence(
   }
   const sourceType = source.type;
   const metadata = object(source.metadata);
-  const hasImageSourceMetadata = nonEmptyString(metadata?.manifestDigest);
-  if (hasImageSourceMetadata && sourceType !== "image") {
-    return sourceType === undefined
-      ? inconclusive("artifact_sbom_binding_missing")
-      : blocked("artifact_sbom_binding_mismatch");
-  }
+  const sourceShape = classifySyftSourceShape(source);
+  if (sourceShape === "AMBIGUOUS") return blocked("artifact_sbom_binding_mismatch");
   if (typeof sourceType !== "string") return inconclusive("artifact_sbom_binding_missing");
   if (!supportedSourceTypes.has(sourceType as (typeof SBOM_CONSUMER_CONTRACT.sourceTypes)[number])) {
+    if (sourceShape === "IMAGE") return blocked("artifact_sbom_binding_mismatch");
     return inconclusive("sbom_source_type_unsupported");
   }
+  if (sourceType === "file" && sourceShape !== "FILE") return sourceShape === "IMAGE"
+    ? blocked("artifact_sbom_binding_mismatch")
+    : inconclusive("artifact_sbom_binding_missing");
+  if (sourceType === "image" && sourceShape !== "IMAGE") return sourceShape === "FILE"
+    ? inconclusive("artifact_sbom_binding_missing")
+    : inconclusive("artifact_sbom_binding_missing");
   if (sourceType === "image") {
     const resolvedId = source.id;
     const manifestDigest = metadata?.manifestDigest;

@@ -121,6 +121,14 @@ not resolved-manifest proof. For `file`, `source.version` remains the primary
 qualified identity and any supplied SHA-256 entry in `source.metadata.digests`
 must agree with the artifact bytes.
 
+Binding selection also validates source metadata shape before selecting a rule.
+Image signals are presence-based across Syft-native `userInput`, `imageID`,
+`manifestDigest`, `layers`, and embedded `manifest` fields; file signals are
+`path`, `digests`, and `mimeType`. A mixed shape is ambiguous and fails closed.
+Deleting or corrupting one image field therefore cannot downgrade the
+remaining image-shaped evidence into file binding. Missing source type remains
+inconclusive, and unsupported source types are never inferred as files.
+
 ## 6. Identity and relationship rules
 
 ### Artifact identity

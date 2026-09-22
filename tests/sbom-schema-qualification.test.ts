@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
-import { SBOM_CONSUMER_CONTRACT, loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
+import { SBOM_CONSUMER_CONTRACT, classifySyftSourceShape, loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
 import { sha256Bytes } from "../src/core/digest.js";
 
 const fixtureRoot = join(process.cwd(), "tests", "fixtures", "sbom");
@@ -92,6 +92,10 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
   it("exports one complete schema allowlist used by the consumer", () => {
     expect(SBOM_CONSUMER_CONTRACT.schemaVersions).toEqual(["16.1.3", "16.1.10"]);
     expect(SBOM_CONSUMER_CONTRACT.sourceTypes).toEqual(["file", "image"]);
+    expect(classifySyftSourceShape({ metadata: { path: "x", digests: [], mimeType: "" } })).toBe("FILE");
+    expect(classifySyftSourceShape({ metadata: { imageID: "x", layers: [] } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { path: "x", manifest: "{}" } })).toBe("AMBIGUOUS");
+    expect(classifySyftSourceShape({ metadata: {} })).toBe("UNKNOWN");
   });
 
   it("keeps the complete admission matrix semantically equivalent", async () => {
@@ -182,9 +186,23 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
     expect(await withSource((source) => { source.type = "file"; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.type = "file"; delete source.metadata.manifestDigest; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.type = "file"; source.metadata.manifestDigest = null; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.type = "file"; delete source.metadata.manifestDigest; delete source.metadata.manifest; delete source.metadata.userInput; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.type = "file"; delete source.metadata.manifestDigest; delete source.metadata.layers; delete source.metadata.manifest; delete source.metadata.userInput; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.type = "file"; delete source.metadata.manifestDigest; delete source.metadata.imageID; delete source.metadata.layers; delete source.metadata.userInput; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.type; }))
       .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
     expect(await withSource((source) => { source.type = "unknown-test-type"; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => {
+      source.type = "image";
+      source.metadata = { path: "image-as-file", digests: [], mimeType: "" };
+    })).toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
   });
 });
