@@ -1,6 +1,6 @@
 name: MCP Evidence Gate
 description: "Experimental downstream verifier and CI policy gate for evidence-scoped MCP security receipts."
-author: yandexuanxuan
+author: Xander-Xai
 
 inputs:
   receipt:

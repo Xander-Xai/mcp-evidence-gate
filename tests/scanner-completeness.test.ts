@@ -157,7 +157,6 @@ describe("strict scanner execution completeness policy", () => {
     const snapshot = await readEvidenceSnapshot("package-view.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.74.0" }, scanner_execution: execution })));
     expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.74.0" })).toMatchObject({ status: "pass" });
   });
-
   it("records the legacy permissive false-clean gap while strict policy blocks it", async () => {
     const materialized = await materialize({
       ...completeExecution(),
