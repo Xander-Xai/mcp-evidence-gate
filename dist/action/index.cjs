@@ -28799,14 +28799,37 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   if (typeof schema?.version !== "string" || !supportedSchemaVersions.has(schema.version) || schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
-  let sourceDigest;
-  try {
-    sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
-  } catch {
-    return blocked("artifact_sbom_binding_mismatch");
+  if (source.type === "image") {
+    const metadata = object(source.metadata);
+    const resolvedId = source.id;
+    const manifestDigest = metadata?.manifestDigest;
+    if (!nonEmptyString(resolvedId) && !nonEmptyString(manifestDigest)) {
+      return inconclusive("artifact_sbom_binding_missing");
+    }
+    let resolvedIdDigest;
+    let manifestDigestValue;
+    try {
+      resolvedIdDigest = nonEmptyString(resolvedId) ? sourceIdentityDigest(resolvedId, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") : void 0;
+      manifestDigestValue = nonEmptyString(manifestDigest) ? digest(manifestDigest, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") : void 0;
+    } catch {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (resolvedIdDigest && manifestDigestValue && resolvedIdDigest !== manifestDigestValue) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (resolvedIdDigest && resolvedIdDigest !== artifactDigest || manifestDigestValue && manifestDigestValue !== artifactDigest) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+  } else {
+    let sourceDigest;
+    try {
+      sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
+    } catch {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (sourceDigest !== artifactDigest)
+      return blocked("artifact_sbom_binding_mismatch");
   }
-  if (sourceDigest !== artifactDigest)
-    return blocked("artifact_sbom_binding_mismatch");
   if (!Array.isArray(artifacts))
     return inconclusive("sbom_inventory_missing");
   if (artifacts.length === 0)
@@ -28821,6 +28844,11 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   if (inventory.status !== "present" || inventory.package_count !== artifacts.length)
     return inconclusive("sbom_inventory_count_mismatch");
   return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: schema.version, inventoryStatus: "present", packageCount: artifacts.length };
+}
+function sourceIdentityDigest(value, missingCode, malformedCode) {
+  if (typeof value === "string" && /^[a-f0-9]{64}$/.test(value))
+    return `sha256:${value}`;
+  return digest(value, missingCode, malformedCode);
 }
 
 // src/action.ts

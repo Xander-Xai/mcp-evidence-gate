@@ -128,18 +128,24 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(result).toMatchObject({ status: "inconclusive", reasonCodes: ["sbom_schema_unsupported"] });
   });
 
-  it("qualifies the real 16.1.10 SBOM against exact OCI manifest bytes", async () => {
-    const realArtifactPath = join(fixtureRoot, "github-mcp-server-a44e77b-manifest.json");
+  it("qualifies the real 16.1.10 SBOM against the resolved OCI scan subject", async () => {
+    const realArtifactPath = join(fixtureRoot, "github-mcp-server-b281-manifest.json");
+    const requestedArtifactPath = join(fixtureRoot, "github-mcp-server-a44e77b-manifest.json");
     const mismatchArtifactPath = join(fixtureRoot, "ibm-mcp-context-forge-dd0998-manifest.json");
     const realSbomPath = fixtureFiles["16.1.10"];
     const artifactBytes = new Uint8Array(await readFile(realArtifactPath));
+    const requestedBytes = new Uint8Array(await readFile(requestedArtifactPath));
     const sbomBytes = new Uint8Array(await readFile(realSbomPath));
     const mismatchBytes = new Uint8Array(await readFile(mismatchArtifactPath));
     const document = JSON.parse(new TextDecoder().decode(sbomBytes)) as Record<string, any>;
     const realDigest = sha256Bytes(artifactBytes);
+    const requestedDigest = sha256Bytes(requestedBytes);
     const mismatchDigest = sha256Bytes(mismatchBytes);
-    expect(realDigest).toBe("sha256:a44e77b9c9003ed0e228716d118aa4ce9f3418dce30fe2340c71553164bd96f0");
-    expect(document.source.version).toBe(realDigest);
+    expect(realDigest).toBe("sha256:b2814a05586591dd361d361c26bbb1e1154cfbc1544fca32785fde5e11270d07");
+    expect(requestedDigest).toBe("sha256:a44e77b9c9003ed0e228716d118aa4ce9f3418dce30fe2340c71553164bd96f0");
+    expect(document.source.version).toBe(requestedDigest);
+    expect(document.source.id).toBe("b2814a05586591dd361d361c26bbb1e1154cfbc1544fca32785fde5e11270d07");
+    expect(document.source.metadata.manifestDigest).toBe(realDigest);
     const envelope = (artifactSha: string, relationshipArtifactSha = artifactSha, bytes = sbomBytes, artifactSize = artifactBytes.byteLength) => ({
       schema_version: SBOM_CONSUMER_CONTRACT.envelopeSchema,
       artifact: { ref: "ghcr.io/github/github-mcp-server@" + realDigest, sha256: artifactSha, size: artifactSize },
@@ -149,9 +155,29 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     });
     const exact = await verifySbomEvidence(realArtifactPath, envelope(realDigest), sbomBytes);
     expect(exact).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const requestedAsArtifact = await verifySbomEvidence(requestedArtifactPath, envelope(requestedDigest, requestedDigest, sbomBytes, requestedBytes.byteLength), sbomBytes);
+    expect(requestedAsArtifact).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     const tampered = await verifySbomEvidence(realArtifactPath, envelope(realDigest), Uint8Array.from([...sbomBytes, 0x0a]));
     expect(tampered).toMatchObject({ status: "blocked", reasonCodes: ["sbom_digest_mismatch"] });
     const mismatch = await verifySbomEvidence(mismatchArtifactPath, envelope(mismatchDigest, realDigest, sbomBytes, mismatchBytes.byteLength), sbomBytes);
     expect(mismatch).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+
+    const withSource = async (mutate: (source: Record<string, any>) => void) => {
+      const mutated = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+      mutate(mutated.source);
+      const bytes = new TextEncoder().encode(JSON.stringify(mutated));
+      return verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, bytes), bytes);
+    };
+    expect(await withSource((source) => {
+      source.id = requestedDigest.slice("sha256:".length);
+      source.metadata.manifestDigest = realDigest;
+    }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.metadata.manifestDigest = requestedDigest; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.id = requestedDigest.slice("sha256:".length); }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { delete source.id; delete source.metadata.manifestDigest; }))
+      .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
   });
 });
