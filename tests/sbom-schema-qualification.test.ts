@@ -27,7 +27,7 @@ async function makeFixture(schemaVersion: QualifiedSchema) {
   // the qualification matrix cannot hide a source-binding mutation.
   const document = {
     schema: { version: schemaVersion },
-    source: { name: "synthetic-artifact", version: artifactDigest, type: "file", metadata: { digests: [{ algorithm: "sha256", value: artifactDigest.slice("sha256:".length) }] } },
+    source: { name: "synthetic-artifact", version: artifactDigest, type: "file", metadata: { path: "artifact.bin", mimeType: "application/octet-stream", digests: [{ algorithm: "sha256", value: artifactDigest.slice("sha256:".length) }] } },
     artifacts: [{ id: "pkg-1", name: "qualification-package", version: "1.0.0", type: "deb" }]
   } as Record<string, any>;
   const sbomBytes = new TextEncoder().encode(JSON.stringify(document));
@@ -120,6 +120,43 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       J_source_metadata_mismatch: { status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] },
       K_oversized_sbom: { status: "inconclusive", reasonCodes: ["sbom_size_limit_exceeded"] }
     });
+  });
+
+  it("fails closed on malformed file SHA-256 identity claims without tightening absence semantics", async () => {
+    const f = await makeFixture("16.1.3");
+    const verifySource = async (mutate: (source: Record<string, any>) => void) => {
+      const document = JSON.parse(JSON.stringify(f.document)) as Record<string, any>;
+      mutate(document.source);
+      const bytes = new TextEncoder().encode(JSON.stringify(document));
+      return verifySbomEvidence(f.artifactPath, f.envelope(bytes), bytes);
+    };
+    const malformed = [
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: null }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: "" }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256" }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: 123 }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: "not-a-digest" }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: "0".repeat(64) }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: f.artifactDigest.slice("sha256:".length) }, { algorithm: "sha256", value: null }]; },
+      (source: Record<string, any>) => { source.metadata.digests = [{ algorithm: "sha256", value: f.artifactDigest.slice("sha256:".length) }, { algorithm: "sha256", value: "0".repeat(64) }]; }
+    ];
+    for (const mutate of malformed) {
+      expect(await verifySource(mutate)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+    expect(await verifySource((source) => {
+      source.metadata.digests = [
+        { algorithm: "sha256", value: f.artifactDigest.slice("sha256:".length) },
+        { algorithm: "sha256", value: f.artifactDigest.slice("sha256:".length) }
+      ];
+    })).toMatchObject({ status: "pass", schemaVersion: "16.1.3" });
+    expect(await verifySource((source) => { source.metadata.digests = [{ algorithm: "sha1", value: "legacy" }]; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.3" });
+    expect(await verifySource((source) => { delete source.metadata.digests; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.3" });
+    expect(await verifySource((source) => { source.metadata.digests = [null]; }))
+      .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+    expect(await verifySource((source) => { source.metadata.digests = {}; }))
+      .toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
   });
 
   it("keeps an exact-shaped future 16.1.11 document unsupported", async () => {

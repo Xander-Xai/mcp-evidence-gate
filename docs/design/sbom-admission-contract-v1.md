@@ -121,6 +121,12 @@ not resolved-manifest proof. For `file`, `source.version` remains the primary
 qualified identity and any supplied SHA-256 entry in `source.metadata.digests`
 must agree with the artifact bytes.
 
+For file-source digest metadata, every supplied SHA-256 identity entry must be
+structurally valid and agree with the evaluated artifact. Malformed supplied
+SHA-256 entries are not treated as absent and fail closed with
+`artifact_sbom_binding_mismatch`; absence of SHA-256 metadata remains a
+separate v1 state.
+
 Binding selection also validates source metadata shape before selecting a rule.
 Image signals are presence-based across Syft-native `userInput`, `imageID`,
 `manifestDigest`, `layers`, and embedded `manifest` fields; file signals are

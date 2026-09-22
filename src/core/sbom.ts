@@ -242,10 +242,17 @@ export async function verifySbomEvidence(
     const fileDigests = metadata?.digests;
     if (fileDigests !== undefined) {
       if (!Array.isArray(fileDigests)) return inconclusive("artifact_sbom_binding_missing");
-      const sha256Values = fileDigests
-        .filter((item) => object(item)?.algorithm === "sha256")
-        .map((item) => object(item)?.value)
-        .filter(nonEmptyString);
+      const sha256Values: string[] = [];
+      for (const item of fileDigests) {
+        const entry = object(item);
+        if (!entry || typeof entry.algorithm !== "string") return inconclusive("artifact_sbom_binding_missing");
+        if (entry.algorithm !== "sha256") continue;
+        if (!Object.prototype.hasOwnProperty.call(entry, "value") ||
+            typeof entry.value !== "string" || !/^[a-f0-9]{64}$/.test(entry.value)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        sha256Values.push(entry.value);
+      }
       if (sha256Values.length > 0 && sha256Values.some((value) => `sha256:${value}` !== artifactDigest)) {
         return blocked("artifact_sbom_binding_mismatch");
       }
