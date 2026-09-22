@@ -147,6 +147,16 @@ describe("strict scanner execution completeness policy", () => {
     expect(verifyScannerExecutionBytes(failed, { scanner: "trivy", scanner_version: "0.1.0" })).toMatchObject({ reason: "scanner_execution_failed" });
   });
 
+  it("accepts the digest-bound npm package-view contract", async () => {
+    const execution = {
+      ...completeExecution(),
+      scanner_contract: "trivy-fs-npm-package-view-v1",
+      required_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"],
+      completed_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"]
+    };
+    const snapshot = await readEvidenceSnapshot("package-view.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.74.0" }, scanner_execution: execution })));
+    expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.74.0" })).toMatchObject({ status: "pass" });
+  });
   it("records the legacy permissive false-clean gap while strict policy blocks it", async () => {
     const materialized = await materialize({
       ...completeExecution(),
