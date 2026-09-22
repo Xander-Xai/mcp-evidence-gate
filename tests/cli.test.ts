@@ -145,6 +145,7 @@ describe("mcp-evidence-gate verify CLI", () => {
       expect(model.decision).toBe("inconclusive");
       expect(model.sbom_admission_status).toBe("inconclusive");
       expect(model.sbom_reason_codes).toContain("sbom_malformed");
+      expect(model.policy_status).toBe("pass");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -165,6 +166,7 @@ describe("mcp-evidence-gate verify CLI", () => {
       expect(result.code).toBe(1);
       expect(model.decision).toBe("fail");
       expect(model.sbom_admission_status).toBe("inconclusive");
+      expect(model.policy_status).toBe("fail");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

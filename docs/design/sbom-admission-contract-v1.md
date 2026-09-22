@@ -1,11 +1,11 @@
 # SBOM Evidence Admission Contract v1
 
-**STATUS: PROPOSAL**  
-**NOT IMPLEMENTED**
+**STATUS: IMPLEMENTED IN CORE PR #23**  
+**IMPLEMENTED**
 
-This document is a consumer-side design proposal. It does not change Core
-runtime behavior, the action bundle, Producer behavior, or any existing
-scanner contract.
+This document describes the implemented consumer-side contract. It changes
+Core SBOM admission and the checked-in Action bundle, while preserving
+Producer behavior and existing scanner contracts.
 
 ## 1. Ownership and scope
 
@@ -13,7 +13,7 @@ The Producer supplies evidence. Core decides whether evidence is admissible.
 A Producer assertion such as `status: complete` is an observation only; it
 cannot grant admission.
 
-This proposal covers SBOM byte identity, artifact identity, their exact
+This contract covers SBOM byte identity, artifact identity, their exact
 relationship, schema validation, inventory completeness, and fail-closed
 admission. Vulnerability matching and security verdicts remain a separate
 later layer.
@@ -181,11 +181,10 @@ benign content.
 | F no exact binding | valid SBOM but only release/version relationship | `INCONCLUSIVE` |
 | G empty inventory | exact binding and parseable schema but zero packages | `INCONCLUSIVE` |
 
-## 8. Proposed reason-code additions
+## 8. Implemented reason codes
 
-The implementation must first reconcile these with the existing taxonomy and
-reuse an existing code when semantics already match. The following are
-proposal names, not implemented codes:
+The implementation reuses the existing artifact and policy taxonomy where
+semantics match. The following SBOM-specific codes are emitted by v1:
 
 ```text
 sbom_missing
@@ -202,8 +201,8 @@ artifact_sbom_binding_mismatch
 ```
 
 The existing `artifact_digest_mismatch` and scanner-execution reason family
-remain unchanged. A future implementation must keep SBOM admission reasons
-separate from vulnerability findings.
+remain unchanged. SBOM admission reasons remain separate from vulnerability
+findings.
 
 ## 9. Threat-model review
 
@@ -225,7 +224,7 @@ separate from vulnerability findings.
 | Duplicate package identifiers | preserve all records, detect duplicates, and make duplicate policy explicit before PASS |
 | Malformed source metadata | binding cannot be proven; `INCONCLUSIVE` |
 
-## 10. Resource-limit proposal
+## 10. Resource limits
 
 The Wave-3.3 SBOM was 279,264 bytes with 275 packages. Limits should be
 configurable policy values selected after corpus benchmarking, not hidden parser
@@ -238,9 +237,9 @@ constants. A conservative initial review range is:
 | `MAX_STRING_LENGTH` | 64 KiB–1 MiB | bounds hostile metadata without truncating normal identifiers |
 | `MAX_NESTING_DEPTH` | 32–128 | bounds parser recursion while allowing real JSON structure |
 
-The implementation PR must choose values from a measured corpus, document
-streaming/parse memory behavior, and make limit failures explicit. No value is
-implemented by this proposal.
+The implementation uses explicit v1 bounds and performs path stat preflight
+before SBOM byte allocation. Limit failures are structured `INCONCLUSIVE`
+results.
 
 ## 11. Architecture decision
 
@@ -260,9 +259,9 @@ remain unchanged when no SBOM evidence is supplied. SBOM evidence is not a
 new global prerequisite for existing Core admission. Existing scanner tests
 and contracts must remain green.
 
-## 13. Bounded future implementation surface
+## 13. Implementation surface
 
-An implementation PR should be limited to the smallest reviewed set, likely:
+The implementation is limited to the following reviewed surface:
 
 ```text
 src/core/sbom-admission.ts
@@ -278,9 +277,9 @@ dist/action bundle (only after source and tests pass)
 No Producer changes, scanner vulnerability matcher, registry profile rewrite,
 or existing scanner contract migration belongs in that PR.
 
-## 14. Required future test matrix
+## 14. Regression test matrix
 
-The implementation must cover valid Syft 16.1.3 exact-bound, tampered SBOM,
+The implementation covers valid Syft 16.1.3 exact-bound, tampered SBOM,
 artifact mismatch, missing SBOM, malformed JSON, unsupported schema, missing
 inventory, empty inventory, missing binding, malformed SBOM digest, and
 platform mismatch where platform metadata is present. Existing scanner tests
@@ -295,10 +294,9 @@ compatibility is bounded, and the implementation surface is constrained.
 
 ```text
 CORE_SBOM_IMPLEMENTATION_READY = YES
-CORE_CODE_CHANGED = NO
-CORE_PR_CREATED = NO
+CORE_CODE_CHANGED = YES
+CORE_PR_CREATED = YES
 ```
 
-Next action: implement the minimal Core SBOM admission contract in an isolated
-PR, then dogfood it against the exact Wave-3.3 Syft evidence before any
-external use.
+Next action: promote the open Core PR only after main CI and promoted-main
+dogfood remain green; then validate a second independent real artifact.

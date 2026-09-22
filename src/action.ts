@@ -49,7 +49,7 @@ export async function runAction(): Promise<void> {
   core.setOutput("profile", evaluation.profile);
   core.setOutput("integrity-status", evaluation.integrityStatus);
   core.setOutput("receipt-status", evaluation.receiptStatus);
-  core.setOutput("policy-status", effectiveDecision);
+  core.setOutput("policy-status", evaluation.policyStatus);
   core.setOutput("admission-status", effectiveDecision);
   core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
   core.setOutput("reason-codes", [...evaluation.reasonCodes, ...sbomAdmission.reasonCodes].join(","));
@@ -63,21 +63,18 @@ export async function runAction(): Promise<void> {
   core.info(`SBOM evidence: ${sbomAdmission.status.toUpperCase()}`);
   core.info("Security verdict: NOT EVALUATED BY SBOM CONTRACT");
 
-  if (sbomAdmission.status === "blocked") {
-    core.setFailed(`SBOM BLOCKED: ${sbomAdmission.reasonCodes.join(", ")}`);
+  const allReasons = [...evaluation.reasons.map((reason) => `${reason.code}: ${reason.detail}`), ...sbomAdmission.reasonCodes];
+  if (effectiveDecision === "fail") {
+    core.setFailed(`FAIL: ${allReasons.join("; ")}`);
     return;
   }
   if (sbomAdmission.status === "inconclusive") {
-    core.setFailed(`SBOM INCONCLUSIVE: ${sbomAdmission.reasonCodes.join(", ")}`);
+    core.setFailed(`SBOM INCONCLUSIVE: ${allReasons.join("; ")}`);
     return;
   }
 
   if (effectiveDecision === "warn") {
     core.warning(formatReasons(evaluation.reasons));
-    return;
-  }
-  if (effectiveDecision === "fail") {
-    core.setFailed(`FAIL: ${formatReasons(evaluation.reasons)}`);
     return;
   }
   if (effectiveDecision === "inconclusive") {

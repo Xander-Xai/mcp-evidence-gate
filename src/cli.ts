@@ -195,7 +195,7 @@ function outputModel(
     decision: effectiveDecision,
     integrity_status: decision.integrityStatus,
     receipt_status: decision.receiptStatus,
-    policy_status: effectiveDecision,
+    policy_status: decision.policyStatus,
     admission_status: effectiveDecision,
     scanner_execution_status: decision.scannerExecutionStatus,
     reason_codes: decision.reasonCodes,
