@@ -28829,22 +28829,23 @@ async function runAction() {
       );
     }
   }
-  core.setOutput("decision", evaluation.decision);
+  const effectiveDecision = sbomAdmission.status === "blocked" ? "fail" : sbomAdmission.status === "inconclusive" ? "inconclusive" : evaluation.decision;
+  core.setOutput("decision", effectiveDecision);
   core.setOutput("receipt-verdict", evaluation.receiptVerdict);
   core.setOutput("profile", evaluation.profile);
   core.setOutput("integrity-status", evaluation.integrityStatus);
   core.setOutput("receipt-status", evaluation.receiptStatus);
-  core.setOutput("policy-status", evaluation.policyStatus);
-  core.setOutput("admission-status", evaluation.admissionStatus);
+  core.setOutput("policy-status", effectiveDecision);
+  core.setOutput("admission-status", effectiveDecision);
   core.setOutput("scanner-execution-status", evaluation.scannerExecutionStatus);
-  core.setOutput("reason-codes", evaluation.reasonCodes.join(","));
+  core.setOutput("reason-codes", [...evaluation.reasonCodes, ...sbomAdmission.reasonCodes].join(","));
   core.setOutput("policy-version", evaluation.policyVersion ?? "");
   core.setOutput("sbom-admission-status", sbomAdmission.status);
   core.setOutput("sbom-reason-codes", sbomAdmission.reasonCodes.join(","));
   core.setOutput("sbom-format", sbomAdmission.format ?? "");
   core.setOutput("sbom-schema-version", sbomAdmission.schemaVersion ?? "");
   core.setOutput("sbom-package-count", sbomAdmission.packageCount?.toString() ?? "");
-  core.info(`MCP Evidence Gate decision: ${evaluation.decision.toUpperCase()}`);
+  core.info(`MCP Evidence Gate decision: ${effectiveDecision.toUpperCase()}`);
   core.info(`SBOM evidence: ${sbomAdmission.status.toUpperCase()}`);
   core.info("Security verdict: NOT EVALUATED BY SBOM CONTRACT");
   if (sbomAdmission.status === "blocked") {
@@ -28855,15 +28856,15 @@ async function runAction() {
     core.setFailed(`SBOM INCONCLUSIVE: ${sbomAdmission.reasonCodes.join(", ")}`);
     return;
   }
-  if (evaluation.decision === "warn") {
+  if (effectiveDecision === "warn") {
     core.warning(formatReasons(evaluation.reasons));
     return;
   }
-  if (evaluation.decision === "fail") {
+  if (effectiveDecision === "fail") {
     core.setFailed(`FAIL: ${formatReasons(evaluation.reasons)}`);
     return;
   }
-  if (evaluation.decision === "inconclusive") {
+  if (effectiveDecision === "inconclusive") {
     core.setFailed(`INCONCLUSIVE: evidence does not support this release. ${formatReasons(evaluation.reasons)}`);
   }
 }
