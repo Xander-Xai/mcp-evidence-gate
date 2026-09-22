@@ -94,6 +94,7 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(SBOM_CONSUMER_CONTRACT.sourceTypes).toEqual(["file", "image"]);
     expect(classifySyftSourceShape({ metadata: { path: "x", digests: [], mimeType: "" } })).toBe("FILE");
     expect(classifySyftSourceShape({ metadata: { imageID: "x", layers: [] } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { config: "base64" } })).toBe("IMAGE");
     expect(classifySyftSourceShape({ metadata: { path: "x", manifest: "{}" } })).toBe("AMBIGUOUS");
     expect(classifySyftSourceShape({ metadata: {} })).toBe("UNKNOWN");
   });

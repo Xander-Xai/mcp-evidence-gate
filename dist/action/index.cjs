@@ -28676,7 +28676,7 @@ function classifySyftSourceShape(sourceValue) {
   const metadata = object(source?.metadata);
   if (!metadata)
     return "UNKNOWN";
-  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   const fileSignals = ["path", "digests", "mimeType"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   if (imageSignals && fileSignals)
     return "AMBIGUOUS";
