@@ -28668,6 +28668,21 @@ var SBOM_CONSUMER_CONTRACT = Object.freeze({
   relationshipType: "generated-from",
   binding: "exact-artifact"
 });
+var QUALIFIED_IMAGE_METADATA_SIGNALS = Object.freeze([
+  "userInput",
+  "imageID",
+  "manifestDigest",
+  "mediaType",
+  "tags",
+  "imageSize",
+  "layers",
+  "manifest",
+  "config",
+  "architecture",
+  "os",
+  "repoDigests",
+  "labels"
+]);
 var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
 var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
@@ -28676,7 +28691,7 @@ function classifySyftSourceShape(sourceValue) {
   const metadata = object(source?.metadata);
   if (!metadata)
     return "UNKNOWN";
-  const imageSignals = ["userInput", "imageID", "manifestDigest", "layers", "manifest", "config", "architecture", "os"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const imageSignals = QUALIFIED_IMAGE_METADATA_SIGNALS.some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   const fileSignals = ["path", "digests", "mimeType"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
   if (imageSignals && fileSignals)
     return "AMBIGUOUS";
@@ -28855,6 +28870,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       return blocked("artifact_sbom_binding_mismatch");
     let embeddedConfigDigest;
     let embeddedConfigDocument;
+    let embeddedConfigPayloadDigest;
     let embeddedLayers;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
@@ -28882,11 +28898,12 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     }
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "config")) {
       const encodedConfig = metadata.config;
-      if (typeof encodedConfig !== "string" || !isCanonicalBase64(encodedConfig) || imageId.state !== "valid") {
+      if (typeof encodedConfig !== "string" || !isCanonicalBase64(encodedConfig)) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       const configBytes = Buffer.from(encodedConfig, "base64");
-      if (sha256Bytes(configBytes) !== imageId.digest) {
+      embeddedConfigPayloadDigest = sha256Bytes(configBytes);
+      if (imageId.state === "valid" && embeddedConfigPayloadDigest !== imageId.digest) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       try {
@@ -28897,9 +28914,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       if (!embeddedConfigDocument)
         return blocked("artifact_sbom_binding_mismatch");
     }
-    if (imageId.state === "valid") {
+    const needsArtifactManifest = imageId.state === "valid" || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
+    if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
-      if (!configDigest) {
+      if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
         try {
           const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest)
@@ -28910,13 +28928,16 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
           if (parsedConfig.state !== "valid")
             return blocked("artifact_sbom_binding_mismatch");
           configDigest = parsedConfig.digest;
-          embeddedConfigDocument = config;
+          if (!embeddedConfigDocument)
+            embeddedConfigDocument = config;
           embeddedLayers = artifactDocument?.layers;
         } catch {
           return blocked("artifact_sbom_binding_mismatch");
         }
       }
-      if (imageId.digest !== configDigest)
+      if (imageId.state === "valid" && imageId.digest !== configDigest)
+        return blocked("artifact_sbom_binding_mismatch");
+      if (embeddedConfigPayloadDigest && embeddedConfigPayloadDigest !== configDigest)
         return blocked("artifact_sbom_binding_mismatch");
     }
     if (embeddedConfigDocument && metadata) {

@@ -95,6 +95,11 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(classifySyftSourceShape({ metadata: { path: "x", digests: [], mimeType: "" } })).toBe("FILE");
     expect(classifySyftSourceShape({ metadata: { imageID: "x", layers: [] } })).toBe("IMAGE");
     expect(classifySyftSourceShape({ metadata: { config: "base64" } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { mediaType: null } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { imageSize: 0 } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { repoDigests: [] } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { tags: [] } })).toBe("IMAGE");
+    expect(classifySyftSourceShape({ metadata: { labels: {} } })).toBe("IMAGE");
     expect(classifySyftSourceShape({ metadata: { path: "x", manifest: "{}" } })).toBe("AMBIGUOUS");
     expect(classifySyftSourceShape({ metadata: {} })).toBe("UNKNOWN");
   });
@@ -270,5 +275,36 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       source.type = "image";
       source.metadata = { path: "image-as-file", digests: [], mimeType: "" };
     })).toMatchObject({ status: "inconclusive", reasonCodes: ["artifact_sbom_binding_missing"] });
+
+    const qualifiedImageFields = ["mediaType", "imageSize", "repoDigests", "tags", "labels"] as const;
+    for (const field of qualifiedImageFields) {
+      const downgraded = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+      const retainedValue = downgraded.source.metadata[field];
+      downgraded.source.type = "file";
+      downgraded.source.metadata = { path: "synthetic-path", [field]: retainedValue };
+      const downgradedBytes = new TextEncoder().encode(JSON.stringify(downgraded));
+      const result = await verifySbomEvidence(requestedArtifactPath, envelope(requestedDigest, requestedDigest, downgradedBytes, requestedBytes.byteLength), downgradedBytes);
+      expect(result, field).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+
+    const layersWithoutManifest = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    delete layersWithoutManifest.source.metadata.manifest;
+    delete layersWithoutManifest.source.metadata.imageID;
+    const layersWithoutManifestBytes = new TextEncoder().encode(JSON.stringify(layersWithoutManifest));
+    const layersWithoutManifestResult = await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, layersWithoutManifestBytes), layersWithoutManifestBytes);
+    expect(layersWithoutManifestResult).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+
+    for (const mutate of [
+      (layers: any[]) => { layers[0].digest = "sha256:" + "0".repeat(64); },
+      (layers: any[]) => { layers.pop(); },
+      (layers: any[]) => { layers[0] = { digest: "invalid" }; },
+      (layers: any[]) => { [layers[0], layers[1]] = [layers[1], layers[0]]; }
+    ]) {
+      const invalid = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
+      mutate(invalid.source.metadata.layers);
+      const invalidBytes = new TextEncoder().encode(JSON.stringify(invalid));
+      const invalidResult = await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, invalidBytes), invalidBytes);
+      expect(invalidResult).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
   });
 });

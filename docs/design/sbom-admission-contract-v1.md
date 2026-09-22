@@ -336,3 +336,14 @@ Wave-3.7 qualification is cross-artifact / cross-project validation within
 the Syft JSON producer ecosystem. It does not prove cross-producer
 generalization; CycloneDX, SPDX, and other SBOM generators remain outside
 this contract.
+
+## 16. Qualified image source-shape and manifest fallback invariants
+
+All image-native metadata fields in the qualified Syft image shape participate
+in source classification, including `mediaType`, `imageSize`, `repoDigests`,
+`tags`, and `labels`. Presence is sufficient for shape classification; malformed
+values remain image-shaped evidence and cannot silently downgrade to file
+binding. Manifest fallback is demand-driven: config, platform, or layer
+validation independently requires loading the exact bound artifact manifest when
+no verified embedded manifest is available. Layer equality remains fail-closed
+and does not depend on an optional `imageID` claim.
