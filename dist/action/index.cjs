@@ -28849,6 +28849,16 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (resolvedIdDigest && resolvedIdDigest !== artifactDigest || manifestDigestValue && manifestDigestValue !== artifactDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
+      const embeddedManifest = metadata.manifest;
+      if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      const embeddedBytes = Buffer.from(embeddedManifest, "base64");
+      if (sha256Bytes(embeddedBytes) !== artifactDigest) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
   } else if (sourceType === "file") {
     let sourceDigest;
     try {
@@ -28907,6 +28917,9 @@ function parseOptionalIdentityField(container, key, allowBareHex) {
   } catch {
     return { state: "malformed" };
   }
+}
+function isCanonicalBase64(value) {
+  return value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value) && Buffer.from(value, "base64").toString("base64") === value;
 }
 
 // src/action.ts

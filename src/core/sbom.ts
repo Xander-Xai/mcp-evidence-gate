@@ -234,6 +234,16 @@ export async function verifySbomEvidence(
         (manifestDigestValue && manifestDigestValue !== artifactDigest)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
+      const embeddedManifest = metadata.manifest;
+      if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      const embeddedBytes = Buffer.from(embeddedManifest, "base64");
+      if (sha256Bytes(embeddedBytes) !== artifactDigest) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
   } else if (sourceType === "file") {
     let sourceDigest: string;
     try { sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? ""; }
@@ -280,4 +290,10 @@ function parseOptionalIdentityField(container: Record<string, unknown> | undefin
   } catch {
     return { state: "malformed" };
   }
+}
+
+function isCanonicalBase64(value: string): boolean {
+  return value.length > 0 && value.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]*={0,2}$/.test(value) &&
+    Buffer.from(value, "base64").toString("base64") === value;
 }
