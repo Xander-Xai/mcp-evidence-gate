@@ -151,8 +151,8 @@ describe("strict scanner execution completeness policy", () => {
     const execution = {
       ...completeExecution(),
       scanner_contract: "trivy-fs-npm-package-view-v1",
-      required_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"],
-      completed_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"]
+    required_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "coverage_determination", "result_semantics"],
+    completed_components: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "coverage_determination", "result_semantics"]
     };
     const snapshot = await readEvidenceSnapshot("package-view.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.74.0" }, scanner_execution: execution })));
     expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.74.0" })).toMatchObject({ status: "pass" });

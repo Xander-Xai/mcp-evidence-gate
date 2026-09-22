@@ -28032,7 +28032,7 @@ var SCANNER_EXECUTION_POLICY_VERSION = "scanner-execution-completeness-policy-v2
 var SCANNER_EXECUTION_STATUSES = ["complete", "incomplete", "failed"];
 var CONSUMER_SCANNER_CONTRACTS = [
   { receiptScanner: "trivy", scannerContract: "trivy-fs-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
-  { receiptScanner: "trivy", scannerContract: "trivy-fs-npm-package-view-v1", requiredComponents: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "result_sections", "result_semantics"], allowedExitCodes: [0] },
+  { receiptScanner: "trivy", scannerContract: "trivy-fs-npm-package-view-v1", requiredComponents: ["artifact_snapshot", "archive_validation", "archive_extraction", "derived_view_binding", "scanner_process", "scanner_output", "coverage_determination", "result_semantics"], allowedExitCodes: [0] },
   { receiptScanner: "osv-scanner", scannerContract: "osv-scanner-v2-lockfile-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "source_binding", "result_semantics"], allowedExitCodes: [0, 1] },
   { receiptScanner: "trivy", scannerContract: "trivy-oci-image-json-v1", requiredComponents: ["scanner_process", "scanner_output", "result_sections", "artifact_binding", "result_semantics"], allowedExitCodes: [0] },
   // Compatibility for the pre-v2 fixture contract; real scanner contracts above remain strict.
