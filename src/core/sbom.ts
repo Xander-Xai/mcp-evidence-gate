@@ -322,7 +322,8 @@ export async function verifySbomEvidence(
     }
     let embeddedConfigDigest: string | undefined;
     let embeddedConfigSize: number | undefined;
-    let embeddedConfigDocument: Record<string, unknown> | undefined;
+    let configDescriptor: Record<string, unknown> | undefined;
+    let configPayloadDocument: Record<string, unknown> | undefined;
     let embeddedConfigPayloadDigest: string | undefined;
     let embeddedConfigPayloadSize: number | undefined;
     let embeddedLayers: unknown;
@@ -353,7 +354,7 @@ export async function verifySbomEvidence(
         if (configDigest.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
         embeddedConfigDigest = configDigest.digest;
         embeddedConfigSize = config?.size as number;
-        embeddedConfigDocument = config;
+        configDescriptor = config;
         embeddedLayers = parsedEmbedded.layers;
       } catch {
         return blocked("artifact_sbom_binding_mismatch");
@@ -374,11 +375,11 @@ export async function verifySbomEvidence(
         return blocked("artifact_sbom_binding_mismatch");
       }
       try {
-        embeddedConfigDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(configBytes)));
+        configPayloadDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(configBytes)));
       } catch {
         return blocked("artifact_sbom_binding_mismatch");
       }
-      if (!embeddedConfigDocument) return blocked("artifact_sbom_binding_mismatch");
+      if (!configPayloadDocument || !isImageConfigDocument(configPayloadDocument)) return blocked("artifact_sbom_binding_mismatch");
     }
     if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
       return blocked("artifact_sbom_binding_mismatch");
@@ -389,7 +390,7 @@ export async function verifySbomEvidence(
     const needsArtifactManifest = true;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
-      if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
+      if (!configDigest || !configDescriptor || !embeddedLayers) {
         try {
           const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
@@ -404,7 +405,7 @@ export async function verifySbomEvidence(
           if (parsedConfig.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
           configDigest = parsedConfig.digest;
           embeddedConfigSize = config?.size as number;
-          if (!embeddedConfigDocument) embeddedConfigDocument = config;
+          configDescriptor = config;
           embeddedLayers = artifactDocument?.layers;
         } catch {
           return blocked("artifact_sbom_binding_mismatch");
@@ -420,31 +421,35 @@ export async function verifySbomEvidence(
       return blocked("artifact_sbom_binding_mismatch");
     }
     if (labelsClaim !== undefined) {
-      const boundLabels = object(embeddedConfigDocument?.config)?.Labels;
+      const boundLabels = object(configPayloadDocument?.config)?.Labels;
       if (!isStringMap(boundLabels) || !equalStringMaps(labelsClaim, boundLabels)) {
         return blocked("artifact_sbom_binding_mismatch");
       }
     }
-    if (embeddedConfigDocument && metadata) {
+    if (configPayloadDocument && metadata) {
       for (const field of ["architecture", "os"] as const) {
-        if (Object.prototype.hasOwnProperty.call(metadata, field) && metadata[field] !== embeddedConfigDocument[field]) {
+        if (Object.prototype.hasOwnProperty.call(metadata, field) && metadata[field] !== configPayloadDocument[field]) {
           return blocked("artifact_sbom_binding_mismatch");
         }
       }
     }
-    if (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) && !embeddedConfigDocument) {
+    if (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) && !configPayloadDocument) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const configRootfs = object(configPayloadDocument?.rootfs);
+    const diffIds = configRootfs?.diff_ids;
+    if (configPayloadDocument && (!Array.isArray(diffIds) || !Array.isArray(embeddedLayers) || diffIds.length !== embeddedLayers.length)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
-      if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || metadata.layers.length !== embeddedLayers.length) {
+      if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || !Array.isArray(diffIds) ||
+          metadata.layers.length !== embeddedLayers.length || metadata.layers.length !== diffIds.length) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       for (let index = 0; index < metadata.layers.length; index += 1) {
         const sourceLayer = object(metadata.layers[index]);
         const manifestLayer = object(embeddedLayers[index]);
         const sourceDigest = parseOptionalIdentityField(sourceLayer, "digest", false);
-        const configRootfs = object(embeddedConfigDocument?.rootfs);
-        const diffIds = configRootfs?.diff_ids;
         let diffId: string | undefined;
         try {
           if (Array.isArray(diffIds)) {
@@ -575,6 +580,19 @@ function isImageManifestDocument(value: unknown): value is Record<string, unknow
     return !!descriptor && isMediaType(descriptor.mediaType) &&
       isNonNegativeSafeInteger(descriptor.size) &&
       parseOptionalIdentityField(descriptor, "digest", false).state === "valid";
+  });
+}
+
+/** Validate the shared structural minimum for OCI and Docker image configs. */
+function isImageConfigDocument(value: unknown): value is Record<string, unknown> {
+  const config = object(value);
+  const rootfs = object(config?.rootfs);
+  const diffIds = rootfs?.diff_ids;
+  if (!config || !nonEmptyString(config.architecture) || !nonEmptyString(config.os) ||
+      !rootfs || rootfs.type !== "layers" || !Array.isArray(diffIds)) return false;
+  return diffIds.every((diffId) => {
+    try { parseDigest(diffId); return true; }
+    catch { return false; }
   });
 }
 

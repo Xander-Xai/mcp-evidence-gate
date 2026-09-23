@@ -361,6 +361,15 @@ claim, not a prerequisite for config-payload binding; verified embedded
 manifests are preferred and the exact bounded artifact-manifest fallback is
 used when needed.
 
+The bound payload must also be a structurally valid OCI/Docker image config:
+non-empty string `architecture` and `os`, an object `rootfs` with
+`type: "layers"`, and an array of supported `rootfs.diff_ids` digests. Its
+DiffID count must equal the exact manifest layer count. This validates the
+common shape of the qualified OCI and Docker image configs without treating
+manifest layer descriptor digests as DiffIDs. When Syft layer metadata is
+supplied, its layer count and same-index digests must also match that DiffID
+array.
+
 When `source.metadata.mediaType` is supplied for image evidence, it must equal
 the mediaType of the exact verified manifest. Malformed or contradictory
 supplied mediaType values fail closed; absent mediaType remains compatible with

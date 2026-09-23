@@ -178,6 +178,69 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(result).toMatchObject({ status: "inconclusive", reasonCodes: ["sbom_schema_unsupported"] });
   });
 
+  it("rejects integrity-consistent but structurally invalid OCI image configs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-sbom-invalid-image-config-"));
+    dirs.push(dir);
+    const artifactPath = join(dir, "manifest.json");
+    const original = JSON.parse(await readFile(fixtureFiles["16.1.10"], "utf8")) as Record<string, any>;
+    const configMediaType = "application/vnd.oci.image.config.v1+json";
+    const manifestMediaType = "application/vnd.oci.image.manifest.v1+json";
+    const baseConfig = { architecture: "amd64", os: "linux", rootfs: { type: "layers", diff_ids: [] } };
+    const verifyConfig = async (configValue: unknown) => {
+      const configBytes = Buffer.from(JSON.stringify(configValue));
+      const configDigest = sha256Bytes(configBytes);
+      const manifest = {
+        schemaVersion: 2,
+        mediaType: manifestMediaType,
+        config: { mediaType: configMediaType, digest: configDigest, size: configBytes.byteLength },
+        layers: []
+      };
+      const artifactBytes = Buffer.from(JSON.stringify(manifest));
+      const artifactDigest = sha256Bytes(artifactBytes);
+      await writeFile(artifactPath, artifactBytes);
+      const document = JSON.parse(JSON.stringify(original)) as Record<string, any>;
+      document.source.id = artifactDigest.slice("sha256:".length);
+      document.source.version = artifactDigest;
+      document.source.metadata = {
+        manifestDigest: artifactDigest,
+        imageID: configDigest,
+        manifest: artifactBytes.toString("base64"),
+        config: configBytes.toString("base64")
+      };
+      const sbomBytes = Buffer.from(JSON.stringify(document));
+      const sbomDigest = sha256Bytes(sbomBytes);
+      const envelope = {
+        schema_version: SBOM_CONSUMER_CONTRACT.envelopeSchema,
+        artifact: { ref: `example.test/image@${artifactDigest}`, sha256: artifactDigest, size: artifactBytes.byteLength },
+        sbom: { format: SBOM_CONSUMER_CONTRACT.format, schema_version: "16.1.10", sha256: sbomDigest, size: sbomBytes.byteLength },
+        relationship: { type: SBOM_CONSUMER_CONTRACT.relationshipType, artifact_sha256: artifactDigest, sbom_sha256: sbomDigest, binding: SBOM_CONSUMER_CONTRACT.binding },
+        inventory: { status: "present", package_count: document.artifacts.length }
+      };
+      return verifySbomEvidence(artifactPath, envelope, sbomBytes);
+    };
+
+    expect(await verifyConfig(baseConfig)).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const invalidConfigs: unknown[] = [
+      {},
+      { os: "linux", rootfs: baseConfig.rootfs },
+      { ...baseConfig, architecture: "" },
+      { ...baseConfig, architecture: 1 },
+      { architecture: "amd64", rootfs: baseConfig.rootfs },
+      { ...baseConfig, os: "" },
+      { architecture: "amd64", os: "linux" },
+      { ...baseConfig, rootfs: [] },
+      { ...baseConfig, rootfs: { diff_ids: [] } },
+      { ...baseConfig, rootfs: { type: "something-else", diff_ids: [] } },
+      { ...baseConfig, rootfs: { type: "layers" } },
+      { ...baseConfig, rootfs: { type: "layers", diff_ids: {} } },
+      { ...baseConfig, rootfs: { type: "layers", diff_ids: ["not-a-digest"] } },
+      { ...baseConfig, rootfs: { type: "layers", diff_ids: [`sha256:${"0".repeat(64)}`] } }
+    ];
+    for (const invalidConfig of invalidConfigs) {
+      expect(await verifyConfig(invalidConfig)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+  });
+
   it("qualifies the real 16.1.10 SBOM against the resolved OCI scan subject", async () => {
     const realArtifactPath = join(fixtureRoot, "github-mcp-server-b281-manifest.json");
     const requestedArtifactPath = join(fixtureRoot, "github-mcp-server-a44e77b-manifest.json");
