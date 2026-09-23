@@ -28660,13 +28660,74 @@ async function verifyReceipt(receipt, artifactPath, now, freshnessOptions = {}) 
 
 // src/core/sbom.ts
 var import_promises2 = require("node:fs/promises");
+
+// src/core/bounded-reader.ts
+var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
+async function readBoundedArtifactFromHandle(handle) {
+  const limit = maxEmbeddedManifestBytes + 1;
+  const buffer = Buffer.alloc(limit);
+  let totalRead = 0;
+  while (totalRead < limit) {
+    const { bytesRead } = await handle.read(buffer, totalRead, limit - totalRead, totalRead);
+    if (bytesRead === 0)
+      break;
+    totalRead += bytesRead;
+  }
+  if (totalRead > maxEmbeddedManifestBytes)
+    throw new Error("artifact_too_large");
+  return buffer.subarray(0, totalRead);
+}
+
+// src/core/sbom.ts
 var SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
-  schemaVersion: "16.1.3",
+  schemaVersions: Object.freeze(["16.1.3", "16.1.10"]),
+  sourceTypes: Object.freeze(["file", "image"]),
   relationshipType: "generated-from",
   binding: "exact-artifact"
 });
+var QUALIFIED_IMAGE_METADATA_SIGNALS = Object.freeze([
+  "userInput",
+  "imageID",
+  "manifestDigest",
+  "mediaType",
+  "tags",
+  "imageSize",
+  "layers",
+  "manifest",
+  "config",
+  "architecture",
+  "os",
+  "repoDigests",
+  "labels"
+]);
+var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
+var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
+var maxEmbeddedManifestBytes2 = 4 * 1024 * 1024;
+var imageManifestMediaTypes = /* @__PURE__ */ new Set([
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json"
+]);
+var imageConfigMediaTypes = /* @__PURE__ */ new Set([
+  "application/vnd.oci.image.config.v1+json",
+  "application/vnd.docker.container.image.v1+json"
+]);
+function classifySyftSourceShape(sourceValue) {
+  const source = object(sourceValue);
+  const metadata = object(source?.metadata);
+  if (!metadata)
+    return "UNKNOWN";
+  const imageSignals = QUALIFIED_IMAGE_METADATA_SIGNALS.some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  const fileSignals = ["path", "digests", "mimeType"].some((key) => Object.prototype.hasOwnProperty.call(metadata, key));
+  if (imageSignals && fileSignals)
+    return "AMBIGUOUS";
+  if (imageSignals)
+    return "IMAGE";
+  if (fileSignals)
+    return "FILE";
+  return "UNKNOWN";
+}
 var SBOM_RESOURCE_LIMITS = Object.freeze({
   maxSbomBytes: 64 * 1024 * 1024,
   maxPackageCount: 1e6
@@ -28769,8 +28830,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   }
   if (sbom.size !== void 0 && (typeof sbom.size !== "number" || sbom.size !== sbomBytes.byteLength))
     return inconclusive("sbom_size_mismatch");
-  if (sbom.format !== SBOM_CONSUMER_CONTRACT.format || sbom.schema_version !== SBOM_CONSUMER_CONTRACT.schemaVersion) {
+  if (sbom.format !== SBOM_CONSUMER_CONTRACT.format)
     return inconclusive("sbom_format_unsupported");
+  if (typeof sbom.schema_version !== "string" || !supportedSchemaVersions.has(sbom.schema_version)) {
+    return inconclusive("sbom_schema_unsupported");
   }
   if (!relationship)
     return inconclusive("artifact_sbom_binding_missing");
@@ -28793,17 +28856,307 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
   const schema = object(parsed.schema);
   const source = object(parsed.source);
   const artifacts = parsed.artifacts;
-  if (schema?.version !== SBOM_CONSUMER_CONTRACT.schemaVersion || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
+  if (typeof schema?.version !== "string" || !supportedSchemaVersions.has(schema.version) || schema.version !== sbom.schema_version || !source || !nonEmptyString(source.name) || !nonEmptyString(source.version)) {
     return inconclusive("sbom_schema_unsupported");
   }
-  let sourceDigest;
-  try {
-    sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
-  } catch {
+  const sourceType = source.type;
+  const metadata = object(source.metadata);
+  const sourceShape = classifySyftSourceShape(source);
+  if (sourceShape === "AMBIGUOUS")
     return blocked("artifact_sbom_binding_mismatch");
+  if (typeof sourceType !== "string")
+    return inconclusive("artifact_sbom_binding_missing");
+  if (!supportedSourceTypes.has(sourceType)) {
+    if (sourceShape === "IMAGE")
+      return blocked("artifact_sbom_binding_mismatch");
+    return inconclusive("sbom_source_type_unsupported");
   }
-  if (sourceDigest !== artifactDigest)
-    return blocked("artifact_sbom_binding_mismatch");
+  if (sourceType === "file" && sourceShape !== "FILE")
+    return sourceShape === "IMAGE" ? blocked("artifact_sbom_binding_mismatch") : inconclusive("artifact_sbom_binding_missing");
+  if (sourceType === "image" && sourceShape !== "IMAGE")
+    return sourceShape === "FILE" ? inconclusive("artifact_sbom_binding_missing") : inconclusive("artifact_sbom_binding_missing");
+  if (sourceType === "image") {
+    const sourceId = parseOptionalIdentityField(source, "id", true);
+    const manifest = parseOptionalIdentityField(metadata, "manifestDigest", false);
+    if (sourceId.state === "malformed" || manifest.state === "malformed") {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (sourceId.state === "absent" && manifest.state === "absent") {
+      return inconclusive("artifact_sbom_binding_missing");
+    }
+    const resolvedIdDigest = sourceId.state === "valid" ? sourceId.digest : void 0;
+    const manifestDigestValue = manifest.state === "valid" ? manifest.digest : void 0;
+    if (resolvedIdDigest && manifestDigestValue && resolvedIdDigest !== manifestDigestValue) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (resolvedIdDigest && resolvedIdDigest !== artifactDigest || manifestDigestValue && manifestDigestValue !== artifactDigest) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const imageId = parseOptionalIdentityField(metadata, "imageID", false);
+    if (imageId.state === "malformed")
+      return blocked("artifact_sbom_binding_mismatch");
+    const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : void 0;
+    const userReference = userInput === void 0 ? void 0 : parseImageReference(userInput);
+    if (userInput !== void 0 && !userReference)
+      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference && source.name !== userReference.repository)
+      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference?.digest) {
+      let requestedVersion;
+      try {
+        const parsedVersion = parseDigest(source.version);
+        requestedVersion = `sha256:${parsedVersion.hex}`;
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (userReference.digest !== requestedVersion)
+        return blocked("artifact_sbom_binding_mismatch");
+    }
+    const repoDigests = metadata && Object.prototype.hasOwnProperty.call(metadata, "repoDigests") ? metadata.repoDigests : void 0;
+    if (repoDigests !== void 0) {
+      if (!Array.isArray(repoDigests))
+        return blocked("artifact_sbom_binding_mismatch");
+      for (const value of repoDigests) {
+        const reference = parseImageReference(value, true);
+        if (!reference || !userReference || reference.repository !== userReference.repository || userReference.digest !== void 0 && reference.digest !== userReference.digest) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    const tags = metadata && Object.prototype.hasOwnProperty.call(metadata, "tags") ? metadata.tags : void 0;
+    if (tags !== void 0) {
+      if (!Array.isArray(tags))
+        return blocked("artifact_sbom_binding_mismatch");
+      for (const value of tags) {
+        const reference = parseImageReference(value, false, true);
+        if (!reference || reference.digest !== void 0 || !userReference || reference.repository !== userReference.repository) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    const mediaTypeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "mediaType") ? metadata.mediaType : void 0;
+    if (mediaTypeClaim !== void 0 && (typeof mediaTypeClaim !== "string" || mediaTypeClaim.length === 0)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const labelsClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "labels") ? metadata.labels : void 0;
+    if (labelsClaim !== void 0 && !isStringMap(labelsClaim))
+      return blocked("artifact_sbom_binding_mismatch");
+    const imageSizeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "imageSize") ? metadata.imageSize : void 0;
+    if (imageSizeClaim !== void 0 && !isNonNegativeSafeInteger(imageSizeClaim)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (imageSizeClaim !== void 0 && metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
+      if (!Array.isArray(metadata.layers))
+        return blocked("artifact_sbom_binding_mismatch");
+      let layerSizeTotal = 0;
+      for (const layer of metadata.layers) {
+        const size = object(layer)?.size;
+        if (!isNonNegativeSafeInteger(size))
+          return blocked("artifact_sbom_binding_mismatch");
+        layerSizeTotal += size;
+        if (!Number.isSafeInteger(layerSizeTotal))
+          return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (layerSizeTotal !== imageSizeClaim)
+        return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (metadata && Array.isArray(metadata.layers)) {
+      for (const layer of metadata.layers) {
+        const layerObject = object(layer);
+        if (layerObject && Object.prototype.hasOwnProperty.call(layerObject, "size") && !isNonNegativeSafeInteger(layerObject.size)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        if (layerObject && Object.prototype.hasOwnProperty.call(layerObject, "mediaType")) {
+          const mediaType = layerObject.mediaType;
+          if (typeof mediaType !== "string" || !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(mediaType)) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+        }
+      }
+    }
+    let embeddedConfigDigest;
+    let embeddedConfigSize;
+    let configDescriptor;
+    let configPayloadDocument;
+    let embeddedConfigPayloadDigest;
+    let embeddedConfigPayloadSize;
+    let embeddedLayers;
+    let verifiedManifestMediaType;
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
+      const embeddedManifest = metadata.manifest;
+      const maxEncodedManifestLength = Math.ceil(maxEmbeddedManifestBytes2 / 3) * 4;
+      if (typeof embeddedManifest !== "string" || embeddedManifest.length > maxEncodedManifestLength || !isCanonicalBase64(embeddedManifest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      const embeddedBytes = Buffer.from(embeddedManifest, "base64");
+      if (embeddedBytes.byteLength > maxEmbeddedManifestBytes2) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (sha256Bytes(embeddedBytes) !== artifactDigest) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      try {
+        const parsedEmbedded = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(embeddedBytes)));
+        if (!isImageManifestDocument(parsedEmbedded))
+          return blocked("artifact_sbom_binding_mismatch");
+        const config = object(parsedEmbedded?.config);
+        if (!config)
+          return blocked("artifact_sbom_binding_mismatch");
+        if (mediaTypeClaim !== void 0 && (typeof parsedEmbedded.mediaType !== "string" || parsedEmbedded.mediaType.length === 0)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        verifiedManifestMediaType = typeof parsedEmbedded.mediaType === "string" ? parsedEmbedded.mediaType : void 0;
+        const configDigest = parseOptionalIdentityField(config, "digest", false);
+        if (configDigest.state !== "valid")
+          return blocked("artifact_sbom_binding_mismatch");
+        embeddedConfigDigest = configDigest.digest;
+        embeddedConfigSize = config?.size;
+        configDescriptor = config;
+        embeddedLayers = parsedEmbedded.layers;
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "config")) {
+      const encodedConfig = metadata.config;
+      if (typeof encodedConfig !== "string" || !isCanonicalBase64(encodedConfig)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      const configBytes = Buffer.from(encodedConfig, "base64");
+      if (embeddedConfigSize !== void 0 && configBytes.byteLength !== embeddedConfigSize) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      embeddedConfigPayloadDigest = sha256Bytes(configBytes);
+      embeddedConfigPayloadSize = configBytes.byteLength;
+      if (imageId.state === "valid" && embeddedConfigPayloadDigest !== imageId.digest) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      try {
+        configPayloadDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(configBytes)));
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (!configPayloadDocument || !isImageConfigDocument(configPayloadDocument))
+        return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const needsArtifactManifest = true;
+    if (needsArtifactManifest) {
+      let configDigest = embeddedConfigDigest;
+      if (!configDigest || !configDescriptor || !embeddedLayers) {
+        try {
+          const artifactBytes = await readBoundedArtifact(artifactPath);
+          if (sha256Bytes(artifactBytes) !== artifactDigest)
+            return blocked("artifact_sbom_binding_mismatch");
+          const artifactDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(artifactBytes)));
+          if (!isImageManifestDocument(artifactDocument))
+            return blocked("artifact_sbom_binding_mismatch");
+          if (mediaTypeClaim !== void 0 && (typeof artifactDocument?.mediaType !== "string" || artifactDocument.mediaType.length === 0)) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+          verifiedManifestMediaType = typeof artifactDocument?.mediaType === "string" ? artifactDocument.mediaType : void 0;
+          const config = object(artifactDocument?.config);
+          const parsedConfig = parseOptionalIdentityField(config, "digest", false);
+          if (parsedConfig.state !== "valid")
+            return blocked("artifact_sbom_binding_mismatch");
+          configDigest = parsedConfig.digest;
+          embeddedConfigSize = config?.size;
+          configDescriptor = config;
+          embeddedLayers = artifactDocument?.layers;
+        } catch {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+      if (imageId.state === "valid" && imageId.digest !== configDigest)
+        return blocked("artifact_sbom_binding_mismatch");
+      if (embeddedConfigPayloadDigest && embeddedConfigPayloadDigest !== configDigest)
+        return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (embeddedConfigPayloadSize !== void 0 && embeddedConfigSize !== void 0 && embeddedConfigPayloadSize !== embeddedConfigSize) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (mediaTypeClaim !== void 0 && mediaTypeClaim !== verifiedManifestMediaType) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (labelsClaim !== void 0) {
+      const boundLabels = object(configPayloadDocument?.config)?.Labels;
+      if (!isStringMap(boundLabels) || !equalStringMaps(labelsClaim, boundLabels)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
+    if (configPayloadDocument && metadata) {
+      for (const field of ["architecture", "os"]) {
+        if (Object.prototype.hasOwnProperty.call(metadata, field) && metadata[field] !== configPayloadDocument[field]) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    if (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) && !configPayloadDocument) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const configRootfs = object(configPayloadDocument?.rootfs);
+    const diffIds = configRootfs?.diff_ids;
+    if (configPayloadDocument && (!Array.isArray(diffIds) || !Array.isArray(embeddedLayers) || diffIds.length !== embeddedLayers.length)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
+      if (!Array.isArray(metadata.layers) || !Array.isArray(embeddedLayers) || !Array.isArray(diffIds) || metadata.layers.length !== embeddedLayers.length || metadata.layers.length !== diffIds.length) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      for (let index = 0; index < metadata.layers.length; index += 1) {
+        const sourceLayer = object(metadata.layers[index]);
+        const manifestLayer = object(embeddedLayers[index]);
+        const sourceDigest = parseOptionalIdentityField(sourceLayer, "digest", false);
+        let diffId;
+        try {
+          if (Array.isArray(diffIds)) {
+            const parsedDiffId = parseDigest(diffIds[index]);
+            diffId = `sha256:${parsedDiffId.hex}`;
+          }
+        } catch {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        if (sourceDigest.state !== "valid" || !Array.isArray(diffIds) || diffIds.length !== metadata.layers.length || !diffId || sourceDigest.digest !== diffId) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        const sourceMediaType = sourceLayer?.mediaType;
+        if (sourceMediaType !== void 0 && (typeof sourceMediaType !== "string" || sourceMediaType !== manifestLayer?.mediaType)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+  } else if (sourceType === "file") {
+    let sourceDigest;
+    try {
+      sourceDigest = digest(source.version, "artifact_sbom_binding_missing", "artifact_sbom_binding_mismatch") ?? "";
+    } catch {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (sourceDigest !== artifactDigest)
+      return blocked("artifact_sbom_binding_mismatch");
+    const fileDigests = metadata?.digests;
+    if (fileDigests !== void 0) {
+      if (!Array.isArray(fileDigests))
+        return inconclusive("artifact_sbom_binding_missing");
+      const sha256Values = [];
+      for (const item of fileDigests) {
+        const entry = object(item);
+        if (!entry || typeof entry.algorithm !== "string")
+          return inconclusive("artifact_sbom_binding_missing");
+        if (entry.algorithm !== "sha256")
+          continue;
+        if (!Object.prototype.hasOwnProperty.call(entry, "value") || typeof entry.value !== "string" || !/^[a-f0-9]{64}$/.test(entry.value)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        sha256Values.push(entry.value);
+      }
+      if (sha256Values.length > 0 && sha256Values.some((value) => `sha256:${value}` !== artifactDigest)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+    }
+  }
   if (!Array.isArray(artifacts))
     return inconclusive("sbom_inventory_missing");
   if (artifacts.length === 0)
@@ -28817,7 +29170,116 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     return inconclusive("sbom_inventory_duplicate_id");
   if (inventory.status !== "present" || inventory.package_count !== artifacts.length)
     return inconclusive("sbom_inventory_count_mismatch");
-  return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: SBOM_CONSUMER_CONTRACT.schemaVersion, inventoryStatus: "present", packageCount: artifacts.length };
+  return { status: "pass", reasonCodes: [], format: SBOM_CONSUMER_CONTRACT.format, schemaVersion: schema.version, inventoryStatus: "present", packageCount: artifacts.length };
+}
+async function readBoundedArtifact(path) {
+  const handle = await (0, import_promises2.open)(path, "r");
+  try {
+    return await readBoundedArtifactFromHandle(handle);
+  } finally {
+    await handle.close();
+  }
+}
+function parseOptionalIdentityField(container, key, allowBareHex) {
+  if (!container || !Object.prototype.hasOwnProperty.call(container, key))
+    return { state: "absent" };
+  const value = container[key];
+  if (allowBareHex && typeof value === "string" && /^[a-f0-9]{64}$/.test(value)) {
+    return { state: "valid", digest: `sha256:${value}` };
+  }
+  try {
+    const parsed = parseDigest(value);
+    return { state: "valid", digest: `sha256:${parsed.hex}` };
+  } catch {
+    return { state: "malformed" };
+  }
+}
+function isStringMap(value) {
+  const record = object(value);
+  return !!record && Object.values(record).every((item) => typeof item === "string");
+}
+function isNonNegativeSafeInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function parseImageReference(value, requireDigest = false, requireTag = false) {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value)
+    return void 0;
+  const at = value.lastIndexOf("@");
+  const nameAndTag = at >= 0 ? value.slice(0, at) : value;
+  const digestValue = at >= 0 ? value.slice(at + 1) : void 0;
+  if (at >= 0 && value.indexOf("@") !== at)
+    return void 0;
+  let repository = nameAndTag;
+  const slash = nameAndTag.lastIndexOf("/");
+  const colon = nameAndTag.lastIndexOf(":");
+  const hasTag = colon > slash;
+  if (hasTag)
+    repository = nameAndTag.slice(0, colon);
+  if (requireTag && !hasTag)
+    return void 0;
+  if (hasTag && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(nameAndTag.slice(colon + 1)))
+    return void 0;
+  if (requireDigest && digestValue === void 0)
+    return void 0;
+  let parsedDigest;
+  if (digestValue !== void 0) {
+    try {
+      const parsed = parseDigest(digestValue);
+      parsedDigest = `sha256:${parsed.hex}`;
+    } catch {
+      return void 0;
+    }
+  }
+  const components = repository.split("/");
+  if (components.length === 0 || components.some((part) => !part || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part))) {
+    const authority = components[0] ?? "";
+    if (!/^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(authority) || components.slice(1).some((part) => !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part)))
+      return void 0;
+  }
+  return { repository, ...parsedDigest ? { digest: parsedDigest } : {} };
+}
+function isMediaType(value) {
+  return typeof value === "string" && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(value);
+}
+function isImageManifestDocument(value) {
+  const manifest = object(value);
+  const config = object(manifest?.config);
+  const layers = manifest?.layers;
+  if (!manifest || manifest.schemaVersion !== 2 || !config || !Array.isArray(layers))
+    return false;
+  if (typeof manifest.mediaType !== "string" || !imageManifestMediaTypes.has(manifest.mediaType))
+    return false;
+  if (typeof config.mediaType !== "string" || !imageConfigMediaTypes.has(config.mediaType) || !isNonNegativeSafeInteger(config.size) || parseOptionalIdentityField(config, "digest", false).state !== "valid")
+    return false;
+  return layers.every((value2) => {
+    const descriptor = object(value2);
+    return !!descriptor && isMediaType(descriptor.mediaType) && isNonNegativeSafeInteger(descriptor.size) && parseOptionalIdentityField(descriptor, "digest", false).state === "valid";
+  });
+}
+function isImageConfigDocument(value) {
+  const config = object(value);
+  const rootfs = object(config?.rootfs);
+  const diffIds = rootfs?.diff_ids;
+  if (!config || !nonEmptyString(config.architecture) || !nonEmptyString(config.os) || !rootfs || rootfs.type !== "layers" || !Array.isArray(diffIds))
+    return false;
+  return diffIds.every((diffId) => {
+    try {
+      parseDigest(diffId);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+function equalStringMaps(left, right) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length)
+    return false;
+  return leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]);
+}
+function isCanonicalBase64(value) {
+  return value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value) && Buffer.from(value, "base64").toString("base64") === value;
 }
 
 // src/action.ts

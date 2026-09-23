@@ -84,7 +84,8 @@ The first allowlist contains only the format exercised by the real pilot:
 ```ts
 type ConsumerSbomContract = {
   format: "syft-json";
-  schemaVersion: "16.1.3";
+  supportedSchemaVersions: ["16.1.3", "16.1.10"];
+  sourceTypes: ["file", "image"];
   binding: "exact-artifact";
   requiredEvidence: [
     "artifact_identity",
@@ -96,17 +97,50 @@ type ConsumerSbomContract = {
 };
 ```
 
-`16.x`, `>=16`, CycloneDX, and SPDX are not v1 allowlist entries. A later
-schema version requires an explicit compatibility review and its own real
-artifact, real SBOM, binding, tamper, schema, and inventory evidence.
+`16.x`, `>=16`, CycloneDX, and SPDX are not v1 allowlist entries. The two
+Syft JSON versions above are explicit qualified entries; a later schema
+version requires its own compatibility review and real artifact, SBOM,
+binding, tamper, schema, and inventory evidence.
 
 The Wave-3.2 fixture used CycloneDX-like fields. Wave-3.3 showed that real
-Syft JSON uses schema `16.1.3`, `artifacts` for the package collection,
+Syft JSON uses schema `16.1.3` and Wave-3.7 qualified `16.1.10`; both use `artifacts` for the package collection,
 `source.name`/`source.version` for source metadata, and `schema.version` for
 the descriptor. Fixture assumptions are therefore subordinate to the real
 Syft shape. CycloneDX and SPDX remain **NOT YET VERIFIED**.
 
-## 5. Identity and relationship rules
+## 5. Source-type binding
+
+Source type is part of the consumer-owned admission contract. v1 admits only
+the qualified Syft source types `file` and `image`; missing or unknown values
+are not treated as legacy files. Image-shaped metadata (at minimum
+`source.metadata.manifestDigest`) with a non-image type is contradictory and
+fails closed. For `image`, both `source.id` and
+`source.metadata.manifestDigest` must identify the exact resolved manifest
+bytes when present; `source.version` is requested-reference provenance and is
+not resolved-manifest proof. For `file`, `source.version` remains the primary
+qualified identity and any supplied SHA-256 entry in `source.metadata.digests`
+must agree with the artifact bytes.
+
+For file-source digest metadata, every supplied SHA-256 identity entry must be
+structurally valid and agree with the evaluated artifact. Malformed supplied
+SHA-256 entries are not treated as absent and fail closed with
+`artifact_sbom_binding_mismatch`; absence of SHA-256 metadata remains a
+separate v1 state.
+
+Binding selection also validates source metadata shape before selecting a rule.
+Image signals are presence-based across Syft-native `userInput`, `imageID`,
+`manifestDigest`, `layers`, and embedded `manifest` fields; file signals are
+`path`, `digests`, and `mimeType`. A mixed shape is ambiguous and fails closed.
+Deleting or corrupting one image field therefore cannot downgrade the
+remaining image-shaped evidence into file binding. Missing source type remains
+inconclusive, and unsupported source types are never inferred as files.
+
+For security-sensitive source identity fields, field absence and field
+malformation are distinct states. A present but malformed `source.id` or
+`source.metadata.manifestDigest` fails closed with
+`artifact_sbom_binding_mismatch` and cannot be treated as absent.
+
+## 6. Identity and relationship rules
 
 ### Artifact identity
 
@@ -145,7 +179,7 @@ asset. This is evidence for that pair, not a generic assumption for all SBOMs.
 
 ## 6. Syft-native schema and inventory
 
-For `syft-json` `16.1.3`, Core must require parseable JSON, the expected
+For qualified `syft-json` schemas `16.1.3` and `16.1.10`, Core must require parseable JSON, the expected
 descriptor/schema information, source metadata, and an `artifacts` collection.
 Each inventory item must expose the fields needed by the consumer contract:
 stable identifier, name, version, and type/ecosystem information. The parser
@@ -279,7 +313,7 @@ or existing scanner contract migration belongs in that PR.
 
 ## 14. Regression test matrix
 
-The implementation covers valid Syft 16.1.3 exact-bound, tampered SBOM,
+The implementation covers valid Syft 16.1.3 and 16.1.10 exact-bound, tampered SBOM,
 artifact mismatch, missing SBOM, malformed JSON, unsupported schema, missing
 inventory, empty inventory, missing binding, malformed SBOM digest, and
 platform mismatch where platform metadata is present. Existing scanner tests
@@ -298,5 +332,90 @@ CORE_CODE_CHANGED = YES
 CORE_PR_CREATED = YES
 ```
 
-Next action: promote the open Core PR only after main CI and promoted-main
-dogfood remain green; then validate a second independent real artifact.
+Wave-3.7 qualification is cross-artifact / cross-project validation within
+the Syft JSON producer ecosystem. It does not prove cross-producer
+generalization; CycloneDX, SPDX, and other SBOM generators remain outside
+this contract.
+
+## 16. Qualified image source-shape and manifest fallback invariants
+
+All image-native metadata fields in the qualified Syft image shape participate
+in source classification, including `mediaType`, `imageSize`, `repoDigests`,
+`tags`, and `labels`. Presence is sufficient for shape classification; malformed
+values remain image-shaped evidence and cannot silently downgrade to file
+binding. Every image-shaped source must bind to and parse the bounded exact
+artifact manifest, even when optional config, platform, layer, and media type
+claims are absent. Its schema version and config/layer descriptors must have
+valid digests, media types, and sizes. This prevents an identity-only claim
+from admitting arbitrary non-manifest bytes. Layer equality remains fail-closed
+and does not depend on an optional `imageID` claim.
+
+The exact image manifest must declare an OCI image-manifest or Docker schema-2
+image-manifest media type, and its config descriptor must declare an OCI image
+config or Docker image config media type. Generic syntactically valid media
+types and artifact-manifest media types are not sufficient for image admission.
+
+Every supplied `metadata.config` payload is independently bound to the exact
+image manifest `config.digest`. `imageID` is an additional config identity
+claim, not a prerequisite for config-payload binding; verified embedded
+manifests are preferred and the exact bounded artifact-manifest fallback is
+used when needed.
+
+The bound payload must also be a structurally valid OCI/Docker image config:
+non-empty string `architecture` and `os`, an object `rootfs` with
+`type: "layers"`, and an array of supported `rootfs.diff_ids` digests. Its
+DiffID count must equal the exact manifest layer count. This validates the
+common shape of the qualified OCI and Docker image configs without treating
+manifest layer descriptor digests as DiffIDs. When Syft layer metadata is
+supplied, its layer count and same-index digests must also match that DiffID
+array.
+
+When `source.metadata.mediaType` is supplied for image evidence, it must equal
+the mediaType of the exact verified manifest. Malformed or contradictory
+supplied mediaType values fail closed; absent mediaType remains compatible with
+the existing v1 semantics.
+
+When supplied, `userInput` must be a valid image reference; a digest-qualified
+`userInput` must agree with the requested `source.version`. Supplied
+`repoDigests` must be digest-qualified references for that same repository (and
+must agree with a digest-qualified `userInput`). Supplied `tags` must be valid
+tagged references for that repository. The parsed repository must also equal
+`source.name`. These checks validate Syft's requested-reference provenance
+claims; they do not substitute the requested digest for the resolved manifest
+digest.
+
+When `source.metadata.labels` is supplied for image evidence, it must be a
+string-to-string object exactly matching the `Labels` object in the exact bound
+image config. A supplied contradictory or malformed labels claim fails closed.
+
+When `source.metadata.imageSize` is supplied, it must be a nonnegative safe
+integer. For the qualified Syft image shape, when complete supplied layer-size
+metadata is available, imageSize must equal the exact sum of those layer byte
+sizes. This is Syft/Stereoscope internal consistency, not OCI descriptor-size
+binding. Malformed or contradictory supplied size claims fail closed.
+
+### Wave-3.7.13 per-layer identity and metadata semantics
+
+For the qualified Syft 1.52.0 / Stereoscope 0.3.2 producer, each
+`source.metadata.layers[i].digest` is the uncompressed layer DiffID, sourced
+from the image config's `rootfs.diff_ids[i]` when available. It therefore binds
+to that config array in layer order, not unconditionally to the manifest's
+possibly compressed `layers[i].digest`. Each supplied layer `mediaType` is
+copied from that same manifest layer descriptor and must match it exactly;
+malformed, absent-as-null, empty, or contradictory supplied values fail closed.
+
+Syft/Stereoscope layer `size` is scanner/indexer metadata (the contribution of
+layer file data sections), while OCI descriptor `size` is the byte length of
+the referenced blob. They are different claims and are not compared. Supplied
+layer sizes remain nonnegative safe integers; when the complete layer-size
+array and `imageSize` are both present, their sum must equal `imageSize`. That
+balanced consistency check does not authenticate individual scanner-derived
+sizes against OCI. Balanced per-layer size changes with unchanged aggregate
+are consequently `NOT_EXTERNALLY_BOUND` by the manifest-only consumer.
+
+The real 16.1.10 regression fixture is restored from the immutable hosted
+qualification artifact (run 35806621583, artifact 10727069484): Syft 1.52.0,
+image size 46,854,914, versus manifest descriptor size sum 48,188,928. Its
+DiffIDs happen to equal the manifest digests for this image, so a generated
+gzip-vs-uncompressed control separately exercises the compressed-layer
+mapping.

@@ -13,7 +13,7 @@ async function fixture() {
   await writeFile(artifactPath, "wave-3-5-artifact");
   const artifact = sha256Bytes(new TextEncoder().encode("wave-3-5-artifact"));
   const body = (sourceDigest = artifact, artifacts: unknown[] = [{ id: "pkg-1", name: "demo", version: "1.0.0", type: "library" }]) =>
-    JSON.stringify({ schema: { version: "16.1.3" }, source: { name: "artifact.bin", version: sourceDigest }, artifacts });
+    JSON.stringify({ schema: { version: "16.1.3" }, source: { name: "artifact.bin", version: sourceDigest, type: "file", metadata: { digests: [{ algorithm: "sha256", value: sourceDigest.slice("sha256:".length) }] } }, artifacts });
   const sbomBytes = new TextEncoder().encode(body());
   const envelope = () => ({
     schema_version: "project-defined-sbom-evidence-v1",
