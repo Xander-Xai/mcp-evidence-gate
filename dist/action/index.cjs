@@ -28872,6 +28872,9 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (mediaTypeClaim !== void 0 && (typeof mediaTypeClaim !== "string" || mediaTypeClaim.length === 0)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    const labelsClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "labels") ? metadata.labels : void 0;
+    if (labelsClaim !== void 0 && !isStringMap(labelsClaim))
+      return blocked("artifact_sbom_binding_mismatch");
     let embeddedConfigDigest;
     let embeddedConfigDocument;
     let embeddedConfigPayloadDigest;
@@ -28926,7 +28929,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || mediaTypeClaim !== void 0 && !verifiedManifestMediaType || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
+    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || mediaTypeClaim !== void 0 && !verifiedManifestMediaType || labelsClaim !== void 0 && !embeddedConfigDocument || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
@@ -28958,6 +28961,12 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     }
     if (mediaTypeClaim !== void 0 && mediaTypeClaim !== verifiedManifestMediaType) {
       return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (labelsClaim !== void 0) {
+      const boundLabels = object(embeddedConfigDocument?.config)?.Labels;
+      if (!isStringMap(boundLabels) || !equalStringMaps(labelsClaim, boundLabels)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
     }
     if (embeddedConfigDocument && metadata) {
       for (const field of ["architecture", "os"]) {
@@ -29053,6 +29062,17 @@ function parseOptionalIdentityField(container, key, allowBareHex) {
   } catch {
     return { state: "malformed" };
   }
+}
+function isStringMap(value) {
+  const record = object(value);
+  return !!record && Object.values(record).every((item) => typeof item === "string");
+}
+function equalStringMaps(left, right) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length)
+    return false;
+  return leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]);
 }
 function isCanonicalBase64(value) {
   return value.length > 0 && value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value) && Buffer.from(value, "base64").toString("base64") === value;

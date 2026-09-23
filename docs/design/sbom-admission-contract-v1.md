@@ -358,3 +358,7 @@ When `source.metadata.mediaType` is supplied for image evidence, it must equal
 the mediaType of the exact verified manifest. Malformed or contradictory
 supplied mediaType values fail closed; absent mediaType remains compatible with
 the existing v1 semantics.
+
+When `source.metadata.labels` is supplied for image evidence, it must be a
+string-to-string object exactly matching the `Labels` object in the exact bound
+image config. A supplied contradictory or malformed labels claim fails closed.

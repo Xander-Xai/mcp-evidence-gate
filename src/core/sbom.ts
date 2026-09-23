@@ -249,6 +249,8 @@ export async function verifySbomEvidence(
     if (mediaTypeClaim !== undefined && (typeof mediaTypeClaim !== "string" || mediaTypeClaim.length === 0)) {
       return blocked("artifact_sbom_binding_mismatch");
     }
+    const labelsClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "labels") ? metadata.labels : undefined;
+    if (labelsClaim !== undefined && !isStringMap(labelsClaim)) return blocked("artifact_sbom_binding_mismatch");
     let embeddedConfigDigest: string | undefined;
     let embeddedConfigDocument: Record<string, unknown> | undefined;
     let embeddedConfigPayloadDigest: string | undefined;
@@ -303,6 +305,7 @@ export async function verifySbomEvidence(
     const needsArtifactManifest = imageId.state === "valid" ||
       (embeddedConfigPayloadDigest !== undefined && !embeddedConfigDigest) ||
       (mediaTypeClaim !== undefined && !verifiedManifestMediaType) ||
+      (labelsClaim !== undefined && !embeddedConfigDocument) ||
       (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os"))) ||
       (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers);
     if (needsArtifactManifest) {
@@ -331,6 +334,12 @@ export async function verifySbomEvidence(
     }
     if (mediaTypeClaim !== undefined && mediaTypeClaim !== verifiedManifestMediaType) {
       return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (labelsClaim !== undefined) {
+      const boundLabels = object(embeddedConfigDocument?.config)?.Labels;
+      if (!isStringMap(boundLabels) || !equalStringMaps(labelsClaim, boundLabels)) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
     }
     if (embeddedConfigDocument && metadata) {
       for (const field of ["architecture", "os"] as const) {
@@ -414,6 +423,18 @@ function parseOptionalIdentityField(container: Record<string, unknown> | undefin
   } catch {
     return { state: "malformed" };
   }
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+  const record = object(value);
+  return !!record && Object.values(record).every((item) => typeof item === "string");
+}
+
+function equalStringMaps(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]);
 }
 
 function isCanonicalBase64(value: string): boolean {

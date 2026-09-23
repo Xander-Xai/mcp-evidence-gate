@@ -229,6 +229,17 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json"; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels }; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "org.opencontainers.image.version": "wrong" }; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { const { "org.opencontainers.image.version": _removed, ...labels } = source.metadata.labels; source.metadata.labels = labels; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "example.invalid": "value" }; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    for (const value of [null, [], "foo", 123]) {
+      expect(await withSource((source) => { source.metadata.labels = value; }))
+        .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
     for (const value of ["application/example.invalid", null, "", 123]) {
       expect(await withSource((source) => { source.metadata.mediaType = value; }))
         .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
@@ -325,6 +336,11 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     mediaFallback.source.metadata.mediaType = "application/example.invalid";
     const wrongMediaFallbackBytes = new TextEncoder().encode(JSON.stringify(mediaFallback));
     expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, wrongMediaFallbackBytes), wrongMediaFallbackBytes))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    const labelsWithoutConfig = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
+    delete labelsWithoutConfig.source.metadata.config;
+    const labelsWithoutConfigBytes = new TextEncoder().encode(JSON.stringify(labelsWithoutConfig));
+    expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, labelsWithoutConfigBytes), labelsWithoutConfigBytes))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
 
     for (const mutate of [
