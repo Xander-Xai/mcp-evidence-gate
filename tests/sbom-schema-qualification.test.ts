@@ -219,6 +219,7 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       (source: Record<string, any>) => { source.metadata.repoDigests = ["ghcr.io/other/image@sha256:" + "a".repeat(64)]; },
       (source: Record<string, any>) => { source.metadata.tags = null; },
       (source: Record<string, any>) => { source.metadata.tags = ["ghcr.io/other/image:latest"]; },
+      (source: Record<string, any>) => { source.metadata.tags = [`ghcr.io/github/github-mcp-server:latest@sha256:${"0".repeat(64)}`]; },
       (source: Record<string, any>) => { source.metadata.userInput = null; },
       (source: Record<string, any>) => { source.metadata.userInput = {}; },
       (source: Record<string, any>) => { source.metadata.userInput = "ghcr.io/github/github-mcp-server@sha256:" + "a".repeat(64); },

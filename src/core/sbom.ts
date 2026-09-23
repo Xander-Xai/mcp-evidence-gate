@@ -278,7 +278,7 @@ export async function verifySbomEvidence(
       if (!Array.isArray(tags)) return blocked("artifact_sbom_binding_mismatch");
       for (const value of tags) {
         const reference = parseImageReference(value, false, true);
-        if (!reference || !userReference || reference.repository !== userReference.repository) {
+        if (!reference || reference.digest !== undefined || !userReference || reference.repository !== userReference.repository) {
           return blocked("artifact_sbom_binding_mismatch");
         }
       }

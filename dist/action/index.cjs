@@ -28929,7 +28929,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         return blocked("artifact_sbom_binding_mismatch");
       for (const value of tags) {
         const reference = parseImageReference(value, false, true);
-        if (!reference || !userReference || reference.repository !== userReference.repository) {
+        if (!reference || reference.digest !== void 0 || !userReference || reference.repository !== userReference.repository) {
           return blocked("artifact_sbom_binding_mismatch");
         }
       }
