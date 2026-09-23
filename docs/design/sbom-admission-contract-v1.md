@@ -362,3 +362,8 @@ the existing v1 semantics.
 When `source.metadata.labels` is supplied for image evidence, it must be a
 string-to-string object exactly matching the `Labels` object in the exact bound
 image config. A supplied contradictory or malformed labels claim fails closed.
+
+When `source.metadata.imageSize` is supplied, it must be a nonnegative safe
+integer. For the qualified Syft image shape, when complete supplied layer-size
+metadata is available, imageSize must equal the exact sum of those layer byte
+sizes. Malformed or contradictory supplied size claims fail closed.

@@ -251,6 +251,21 @@ export async function verifySbomEvidence(
     }
     const labelsClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "labels") ? metadata.labels : undefined;
     if (labelsClaim !== undefined && !isStringMap(labelsClaim)) return blocked("artifact_sbom_binding_mismatch");
+    const imageSizeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "imageSize") ? metadata.imageSize : undefined;
+    if (imageSizeClaim !== undefined && !isNonNegativeSafeInteger(imageSizeClaim)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (imageSizeClaim !== undefined && metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
+      if (!Array.isArray(metadata.layers)) return blocked("artifact_sbom_binding_mismatch");
+      let layerSizeTotal = 0;
+      for (const layer of metadata.layers) {
+        const size = object(layer)?.size;
+        if (!isNonNegativeSafeInteger(size)) return blocked("artifact_sbom_binding_mismatch");
+        layerSizeTotal += size;
+        if (!Number.isSafeInteger(layerSizeTotal)) return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (layerSizeTotal !== imageSizeClaim) return blocked("artifact_sbom_binding_mismatch");
+    }
     let embeddedConfigDigest: string | undefined;
     let embeddedConfigDocument: Record<string, unknown> | undefined;
     let embeddedConfigPayloadDigest: string | undefined;
@@ -428,6 +443,10 @@ function parseOptionalIdentityField(container: Record<string, unknown> | undefin
 function isStringMap(value: unknown): value is Record<string, string> {
   const record = object(value);
   return !!record && Object.values(record).every((item) => typeof item === "string");
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function equalStringMaps(left: Record<string, string>, right: Record<string, string>): boolean {

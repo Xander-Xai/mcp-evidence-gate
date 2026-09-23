@@ -28875,6 +28875,25 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     const labelsClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "labels") ? metadata.labels : void 0;
     if (labelsClaim !== void 0 && !isStringMap(labelsClaim))
       return blocked("artifact_sbom_binding_mismatch");
+    const imageSizeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "imageSize") ? metadata.imageSize : void 0;
+    if (imageSizeClaim !== void 0 && !isNonNegativeSafeInteger(imageSizeClaim)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (imageSizeClaim !== void 0 && metadata && Object.prototype.hasOwnProperty.call(metadata, "layers")) {
+      if (!Array.isArray(metadata.layers))
+        return blocked("artifact_sbom_binding_mismatch");
+      let layerSizeTotal = 0;
+      for (const layer of metadata.layers) {
+        const size = object(layer)?.size;
+        if (!isNonNegativeSafeInteger(size))
+          return blocked("artifact_sbom_binding_mismatch");
+        layerSizeTotal += size;
+        if (!Number.isSafeInteger(layerSizeTotal))
+          return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (layerSizeTotal !== imageSizeClaim)
+        return blocked("artifact_sbom_binding_mismatch");
+    }
     let embeddedConfigDigest;
     let embeddedConfigDocument;
     let embeddedConfigPayloadDigest;
@@ -29066,6 +29085,9 @@ function parseOptionalIdentityField(container, key, allowBareHex) {
 function isStringMap(value) {
   const record = object(value);
   return !!record && Object.values(record).every((item) => typeof item === "string");
+}
+function isNonNegativeSafeInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 function equalStringMaps(left, right) {
   const leftKeys = Object.keys(left);

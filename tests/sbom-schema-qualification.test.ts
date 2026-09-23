@@ -230,6 +230,24 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(await withSource((source) => { source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json"; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels }; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    for (const value of [null, "46854914", -1, 46854914.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(await withSource((source) => { source.metadata.imageSize = value; }))
+        .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+    expect(await withSource((source) => { source.metadata.imageSize = 46854915; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { delete source.metadata.imageSize; source.metadata.layers[0].size += 1; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size += 1; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    for (const value of [null, "123", -1, 1.5]) {
+      expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size = value; }))
+        .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; delete source.metadata.layers[0].size; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { delete source.metadata.imageSize; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "org.opencontainers.image.version": "wrong" }; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { const { "org.opencontainers.image.version": _removed, ...labels } = source.metadata.labels; source.metadata.labels = labels; }))
