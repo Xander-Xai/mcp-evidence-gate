@@ -275,6 +275,27 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(await withSource((source) => { delete source.metadata.layers[0].mediaType; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
 
+    const oversizedManifestDir = await mkdtemp(join(tmpdir(), "mcp-sbom-oversized-manifest-"));
+    dirs.push(oversizedManifestDir);
+    const oversizedManifestPath = join(oversizedManifestDir, "manifest.json");
+    const oversizedManifestDocument = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    const oversizedManifestBytes = Buffer.concat([
+      Buffer.from(oversizedManifestDocument.source.metadata.manifest, "base64"),
+      Buffer.alloc(4 * 1024 * 1024, 0x20)
+    ]);
+    const oversizedManifestDigest = sha256Bytes(oversizedManifestBytes);
+    await writeFile(oversizedManifestPath, oversizedManifestBytes);
+    oversizedManifestDocument.source.id = oversizedManifestDigest.slice("sha256:".length);
+    oversizedManifestDocument.source.version = oversizedManifestDigest;
+    oversizedManifestDocument.source.metadata.manifestDigest = oversizedManifestDigest;
+    oversizedManifestDocument.source.metadata.manifest = oversizedManifestBytes.toString("base64");
+    const oversizedSbomBytes = new TextEncoder().encode(JSON.stringify(oversizedManifestDocument));
+    expect(await verifySbomEvidence(
+      oversizedManifestPath,
+      envelope(oversizedManifestDigest, oversizedManifestDigest, oversizedSbomBytes, oversizedManifestBytes.byteLength),
+      oversizedSbomBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+
     // A deterministic compressed blob gives a distinct descriptor digest and
     // uncompressed DiffID; Syft's layer digest must bind to the latter.
     const compressedControlDir = await mkdtemp(join(tmpdir(), "mcp-sbom-compressed-layer-"));

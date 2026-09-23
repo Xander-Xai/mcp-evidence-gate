@@ -28938,6 +28938,9 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       const embeddedBytes = Buffer.from(embeddedManifest, "base64");
+      if (embeddedBytes.byteLength > maxEmbeddedManifestBytes2) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
       if (sha256Bytes(embeddedBytes) !== artifactDigest) {
         return blocked("artifact_sbom_binding_mismatch");
       }
