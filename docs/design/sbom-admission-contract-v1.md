@@ -353,3 +353,8 @@ image manifest `config.digest`. `imageID` is an additional config identity
 claim, not a prerequisite for config-payload binding; verified embedded
 manifests are preferred and the exact bounded artifact-manifest fallback is
 used when needed.
+
+When `source.metadata.mediaType` is supplied for image evidence, it must equal
+the mediaType of the exact verified manifest. Malformed or contradictory
+supplied mediaType values fail closed; absent mediaType remains compatible with
+the existing v1 semantics.

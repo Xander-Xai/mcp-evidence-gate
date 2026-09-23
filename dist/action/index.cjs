@@ -28868,10 +28868,15 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     const imageId = parseOptionalIdentityField(metadata, "imageID", false);
     if (imageId.state === "malformed")
       return blocked("artifact_sbom_binding_mismatch");
+    const mediaTypeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "mediaType") ? metadata.mediaType : void 0;
+    if (mediaTypeClaim !== void 0 && (typeof mediaTypeClaim !== "string" || mediaTypeClaim.length === 0)) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
     let embeddedConfigDigest;
     let embeddedConfigDocument;
     let embeddedConfigPayloadDigest;
     let embeddedLayers;
+    let verifiedManifestMediaType;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
       if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
@@ -28886,6 +28891,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         const config = object(parsedEmbedded?.config);
         if (!parsedEmbedded || !config)
           return blocked("artifact_sbom_binding_mismatch");
+        if (mediaTypeClaim !== void 0 && (typeof parsedEmbedded.mediaType !== "string" || parsedEmbedded.mediaType.length === 0)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        verifiedManifestMediaType = typeof parsedEmbedded.mediaType === "string" ? parsedEmbedded.mediaType : void 0;
         const configDigest = parseOptionalIdentityField(config, "digest", false);
         if (configDigest.state !== "valid")
           return blocked("artifact_sbom_binding_mismatch");
@@ -28917,7 +28926,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
+    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || mediaTypeClaim !== void 0 && !verifiedManifestMediaType || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
@@ -28926,6 +28935,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
           if (sha256Bytes(artifactBytes) !== artifactDigest)
             return blocked("artifact_sbom_binding_mismatch");
           const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
+          if (mediaTypeClaim !== void 0 && (typeof artifactDocument?.mediaType !== "string" || artifactDocument.mediaType.length === 0)) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+          verifiedManifestMediaType = typeof artifactDocument?.mediaType === "string" ? artifactDocument.mediaType : void 0;
           const config = object(artifactDocument?.config);
           const parsedConfig = parseOptionalIdentityField(config, "digest", false);
           if (parsedConfig.state !== "valid")
@@ -28942,6 +28955,9 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         return blocked("artifact_sbom_binding_mismatch");
       if (embeddedConfigPayloadDigest && embeddedConfigPayloadDigest !== configDigest)
         return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (mediaTypeClaim !== void 0 && mediaTypeClaim !== verifiedManifestMediaType) {
+      return blocked("artifact_sbom_binding_mismatch");
     }
     if (embeddedConfigDocument && metadata) {
       for (const field of ["architecture", "os"]) {

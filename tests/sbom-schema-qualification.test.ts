@@ -227,6 +227,12 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.manifest = "not-base64"; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json"; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    for (const value of ["application/example.invalid", null, "", 123]) {
+      expect(await withSource((source) => { source.metadata.mediaType = value; }))
+        .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
     expect(await withSource((source) => { source.metadata.imageID = "sha256:" + "0".repeat(64); }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.imageID = "invalid"; }))
@@ -310,6 +316,15 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     fallbackConfigTamper.source.metadata.config = Buffer.from(JSON.stringify({ architecture: "amd64", os: "linux" })).toString("base64");
     const fallbackConfigTamperBytes = new TextEncoder().encode(JSON.stringify(fallbackConfigTamper));
     expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, fallbackConfigTamperBytes), fallbackConfigTamperBytes))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    const mediaFallback = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
+    mediaFallback.source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json";
+    const mediaFallbackBytes = new TextEncoder().encode(JSON.stringify(mediaFallback));
+    expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, mediaFallbackBytes), mediaFallbackBytes))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    mediaFallback.source.metadata.mediaType = "application/example.invalid";
+    const wrongMediaFallbackBytes = new TextEncoder().encode(JSON.stringify(mediaFallback));
+    expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, wrongMediaFallbackBytes), wrongMediaFallbackBytes))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
 
     for (const mutate of [
