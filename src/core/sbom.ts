@@ -244,6 +244,33 @@ export async function verifySbomEvidence(
     }
     const imageId = parseOptionalIdentityField(metadata, "imageID", false);
     if (imageId.state === "malformed") return blocked("artifact_sbom_binding_mismatch");
+    const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : undefined;
+    const userReference = userInput === undefined ? undefined : parseImageReference(userInput);
+    if (userInput !== undefined && !userReference) return blocked("artifact_sbom_binding_mismatch");
+    if (userReference?.digest && source.version.startsWith("sha256:") && userReference.digest !== source.version) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const repoDigests = metadata && Object.prototype.hasOwnProperty.call(metadata, "repoDigests") ? metadata.repoDigests : undefined;
+    if (repoDigests !== undefined) {
+      if (!Array.isArray(repoDigests)) return blocked("artifact_sbom_binding_mismatch");
+      for (const value of repoDigests) {
+        const reference = parseImageReference(value, true);
+        if (!reference || !userReference || reference.repository !== userReference.repository ||
+            (userReference.digest !== undefined && reference.digest !== userReference.digest)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    const tags = metadata && Object.prototype.hasOwnProperty.call(metadata, "tags") ? metadata.tags : undefined;
+    if (tags !== undefined) {
+      if (!Array.isArray(tags)) return blocked("artifact_sbom_binding_mismatch");
+      for (const value of tags) {
+        const reference = parseImageReference(value, false, true);
+        if (!reference || !userReference || reference.repository !== userReference.repository) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
     const mediaTypeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "mediaType")
       ? metadata.mediaType
       : undefined;
@@ -488,6 +515,34 @@ function isStringMap(value: unknown): value is Record<string, string> {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function parseImageReference(value: unknown, requireDigest = false, requireTag = false): { repository: string; digest?: string } | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) return undefined;
+  const at = value.lastIndexOf("@");
+  const nameAndTag = at >= 0 ? value.slice(0, at) : value;
+  const digestValue = at >= 0 ? value.slice(at + 1) : undefined;
+  if (at >= 0 && value.indexOf("@") !== at) return undefined;
+  let repository = nameAndTag;
+  const slash = nameAndTag.lastIndexOf("/");
+  const colon = nameAndTag.lastIndexOf(":");
+  const hasTag = colon > slash;
+  if (hasTag) repository = nameAndTag.slice(0, colon);
+  if (requireTag && !hasTag) return undefined;
+  if (hasTag && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(nameAndTag.slice(colon + 1))) return undefined;
+  if (requireDigest && digestValue === undefined) return undefined;
+  let parsedDigest: string | undefined;
+  if (digestValue !== undefined) {
+    try { const parsed = parseDigest(digestValue); parsedDigest = `sha256:${parsed.hex}`; }
+    catch { return undefined; }
+  }
+  const components = repository.split("/");
+  if (components.length === 0 || components.some((part) => !part || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part))) {
+    // A registry authority may include a numeric port.
+    const authority = components[0] ?? "";
+    if (!/^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(authority) || components.slice(1).some((part) => !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part))) return undefined;
+  }
+  return { repository, ...(parsedDigest ? { digest: parsedDigest } : {}) };
 }
 
 function isMediaType(value: unknown): value is string {

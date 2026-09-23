@@ -205,6 +205,26 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     });
     const exact = await verifySbomEvidence(realArtifactPath, envelope(realDigest), sbomBytes);
     expect(exact).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const withSource = async (mutate: (source: Record<string, any>) => void) => {
+      const mutated = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+      mutate(mutated.source);
+      const bytes = new TextEncoder().encode(JSON.stringify(mutated));
+      return verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, bytes), bytes);
+    };
+    for (const mutate of [
+      (source: Record<string, any>) => { source.metadata.repoDigests = null; },
+      (source: Record<string, any>) => { source.metadata.repoDigests = {}; },
+      (source: Record<string, any>) => { source.metadata.repoDigests = ["ghcr.io/other/image@sha256:" + "a".repeat(64)]; },
+      (source: Record<string, any>) => { source.metadata.tags = null; },
+      (source: Record<string, any>) => { source.metadata.tags = ["ghcr.io/other/image:latest"]; },
+      (source: Record<string, any>) => { source.metadata.userInput = null; },
+      (source: Record<string, any>) => { source.metadata.userInput = {}; },
+      (source: Record<string, any>) => { source.metadata.userInput = "ghcr.io/github/github-mcp-server@sha256:" + "a".repeat(64); }
+    ]) {
+      expect(await withSource(mutate)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+    expect(await withSource((source) => { source.metadata.repoDigests = []; source.metadata.tags = []; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     const fixtureConfig = JSON.parse(Buffer.from(document.source.metadata.config, "base64").toString("utf8"));
     const fixtureManifest = JSON.parse(Buffer.from(document.source.metadata.manifest, "base64").toString("utf8"));
     expect(document.source.metadata.layers.map((layer: any) => layer.size).reduce((sum: number, size: number) => sum + size, 0)).toBe(46854914);
@@ -218,12 +238,6 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     const mismatch = await verifySbomEvidence(mismatchArtifactPath, envelope(mismatchDigest, realDigest, sbomBytes, mismatchBytes.byteLength), sbomBytes);
     expect(mismatch).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
 
-    const withSource = async (mutate: (source: Record<string, any>) => void) => {
-      const mutated = JSON.parse(JSON.stringify(document)) as Record<string, any>;
-      mutate(mutated.source);
-      const bytes = new TextEncoder().encode(JSON.stringify(mutated));
-      return verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, bytes), bytes);
-    };
     const arbitraryImageArtifactDir = await mkdtemp(join(tmpdir(), "mcp-sbom-arbitrary-image-artifact-"));
     dirs.push(arbitraryImageArtifactDir);
     const arbitraryImageArtifactPath = join(arbitraryImageArtifactDir, "artifact.bin");
@@ -337,6 +351,8 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     await writeFile(compressedControlArtifactPath, compressedManifestBytes);
     compressedControl.source.id = compressedManifestDigest.slice("sha256:".length);
     compressedControl.source.version = compressedManifestDigest;
+    compressedControl.source.metadata.userInput = `ghcr.io/github/github-mcp-server@${compressedManifestDigest}`;
+    compressedControl.source.metadata.repoDigests = [`ghcr.io/github/github-mcp-server@${compressedManifestDigest}`];
     compressedControl.source.metadata.manifestDigest = compressedManifestDigest;
     compressedControl.source.metadata.imageID = compressedConfigDigest;
     compressedControl.source.metadata.manifest = compressedManifestBytes.toString("base64");

@@ -361,6 +361,14 @@ the mediaType of the exact verified manifest. Malformed or contradictory
 supplied mediaType values fail closed; absent mediaType remains compatible with
 the existing v1 semantics.
 
+When supplied, `userInput` must be a valid image reference; a digest-qualified
+`userInput` must agree with the requested `source.version`. Supplied
+`repoDigests` must be digest-qualified references for that same repository (and
+must agree with a digest-qualified `userInput`). Supplied `tags` must be valid
+tagged references for that repository. These checks validate Syft's requested
+reference provenance claims; they do not substitute the requested digest for
+the resolved manifest digest.
+
 When `source.metadata.labels` is supplied for image evidence, it must be a
 string-to-string object exactly matching the `Labels` object in the exact bound
 image config. A supplied contradictory or malformed labels claim fails closed.

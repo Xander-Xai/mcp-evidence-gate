@@ -28887,6 +28887,35 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     const imageId = parseOptionalIdentityField(metadata, "imageID", false);
     if (imageId.state === "malformed")
       return blocked("artifact_sbom_binding_mismatch");
+    const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : void 0;
+    const userReference = userInput === void 0 ? void 0 : parseImageReference(userInput);
+    if (userInput !== void 0 && !userReference)
+      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference?.digest && source.version.startsWith("sha256:") && userReference.digest !== source.version) {
+      return blocked("artifact_sbom_binding_mismatch");
+    }
+    const repoDigests = metadata && Object.prototype.hasOwnProperty.call(metadata, "repoDigests") ? metadata.repoDigests : void 0;
+    if (repoDigests !== void 0) {
+      if (!Array.isArray(repoDigests))
+        return blocked("artifact_sbom_binding_mismatch");
+      for (const value of repoDigests) {
+        const reference = parseImageReference(value, true);
+        if (!reference || !userReference || reference.repository !== userReference.repository || userReference.digest !== void 0 && reference.digest !== userReference.digest) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
+    const tags = metadata && Object.prototype.hasOwnProperty.call(metadata, "tags") ? metadata.tags : void 0;
+    if (tags !== void 0) {
+      if (!Array.isArray(tags))
+        return blocked("artifact_sbom_binding_mismatch");
+      for (const value of tags) {
+        const reference = parseImageReference(value, false, true);
+        if (!reference || !userReference || reference.repository !== userReference.repository) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+      }
+    }
     const mediaTypeClaim = metadata && Object.prototype.hasOwnProperty.call(metadata, "mediaType") ? metadata.mediaType : void 0;
     if (mediaTypeClaim !== void 0 && (typeof mediaTypeClaim !== "string" || mediaTypeClaim.length === 0)) {
       return blocked("artifact_sbom_binding_mismatch");
@@ -29150,6 +29179,43 @@ function isStringMap(value) {
 }
 function isNonNegativeSafeInteger(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function parseImageReference(value, requireDigest = false, requireTag = false) {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value)
+    return void 0;
+  const at = value.lastIndexOf("@");
+  const nameAndTag = at >= 0 ? value.slice(0, at) : value;
+  const digestValue = at >= 0 ? value.slice(at + 1) : void 0;
+  if (at >= 0 && value.indexOf("@") !== at)
+    return void 0;
+  let repository = nameAndTag;
+  const slash = nameAndTag.lastIndexOf("/");
+  const colon = nameAndTag.lastIndexOf(":");
+  const hasTag = colon > slash;
+  if (hasTag)
+    repository = nameAndTag.slice(0, colon);
+  if (requireTag && !hasTag)
+    return void 0;
+  if (hasTag && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(nameAndTag.slice(colon + 1)))
+    return void 0;
+  if (requireDigest && digestValue === void 0)
+    return void 0;
+  let parsedDigest;
+  if (digestValue !== void 0) {
+    try {
+      const parsed = parseDigest(digestValue);
+      parsedDigest = `sha256:${parsed.hex}`;
+    } catch {
+      return void 0;
+    }
+  }
+  const components = repository.split("/");
+  if (components.length === 0 || components.some((part) => !part || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part))) {
+    const authority = components[0] ?? "";
+    if (!/^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(authority) || components.slice(1).some((part) => !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(part)))
+      return void 0;
+  }
+  return { repository, ...parsedDigest ? { digest: parsedDigest } : {} };
 }
 function isMediaType(value) {
   return typeof value === "string" && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(value);
