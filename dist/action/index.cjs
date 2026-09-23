@@ -28660,6 +28660,25 @@ async function verifyReceipt(receipt, artifactPath, now, freshnessOptions = {}) 
 
 // src/core/sbom.ts
 var import_promises2 = require("node:fs/promises");
+
+// src/core/bounded-reader.ts
+var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
+async function readBoundedArtifactFromHandle(handle) {
+  const limit = maxEmbeddedManifestBytes + 1;
+  const buffer = Buffer.alloc(limit);
+  let totalRead = 0;
+  while (totalRead < limit) {
+    const { bytesRead } = await handle.read(buffer, totalRead, limit - totalRead, totalRead);
+    if (bytesRead === 0)
+      break;
+    totalRead += bytesRead;
+  }
+  if (totalRead > maxEmbeddedManifestBytes)
+    throw new Error("artifact_too_large");
+  return buffer.subarray(0, totalRead);
+}
+
+// src/core/sbom.ts
 var SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
@@ -28685,7 +28704,7 @@ var QUALIFIED_IMAGE_METADATA_SIGNALS = Object.freeze([
 ]);
 var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
-var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
+var maxEmbeddedManifestBytes2 = 4 * 1024 * 1024;
 function classifySyftSourceShape(sourceValue) {
   const source = object(sourceValue);
   const metadata = object(source?.metadata);
@@ -29059,11 +29078,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
 async function readBoundedArtifact(path) {
   const handle = await (0, import_promises2.open)(path, "r");
   try {
-    const buffer = Buffer.alloc(maxEmbeddedManifestBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > maxEmbeddedManifestBytes)
-      throw new Error("artifact_too_large");
-    return buffer.subarray(0, bytesRead);
+    return await readBoundedArtifactFromHandle(handle);
   } finally {
     await handle.close();
   }

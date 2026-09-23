@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
 import { SBOM_CONSUMER_CONTRACT, classifySyftSourceShape, loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
+import { readBoundedArtifactFromHandle } from "../src/core/bounded-reader.js";
 import { sha256Bytes } from "../src/core/digest.js";
 
 const fixtureRoot = join(process.cwd(), "tests", "fixtures", "sbom");
@@ -373,5 +374,47 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       const invalidResult = await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, invalidBytes), invalidBytes);
       expect(invalidResult).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
+  });
+});
+
+describe("bounded artifact short-read handling", () => {
+  const readWithChunks = async (bytes: Uint8Array, chunks: number[]) => {
+    let position = 0;
+    let index = 0;
+    const handle = {
+      read: async (buffer: Buffer, offset: number, length: number, filePosition: number) => {
+        expect(filePosition).toBe(position);
+        const requested = chunks[index++] ?? length;
+        const count = Math.min(requested, length, bytes.length - position);
+        if (count <= 0) return { bytesRead: 0 };
+        Buffer.from(bytes).copy(buffer, offset, position, position + count);
+        position += count;
+        return { bytesRead: count };
+      }
+    };
+    return readBoundedArtifactFromHandle(handle);
+  };
+
+  it("accumulates deterministic multi-chunk short reads exactly", async () => {
+    const bytes = new TextEncoder().encode("bounded-short-read-fixture");
+    await expect(readWithChunks(bytes, [7, 11, 3, 2])).resolves.toEqual(Buffer.from(bytes));
+  });
+
+  it("handles one-byte chunks and immediate EOF", async () => {
+    const bytes = new TextEncoder().encode("one-byte");
+    await expect(readWithChunks(bytes, Array(bytes.length).fill(1))).resolves.toEqual(Buffer.from(bytes));
+    await expect(readWithChunks(new Uint8Array(), [0])).resolves.toEqual(Buffer.alloc(0));
+  });
+
+  it("accepts the exact bound and rejects the sentinel byte", async () => {
+    const exact = new Uint8Array(4 * 1024 * 1024);
+    await expect(readWithChunks(exact, [7, 11, 3])).resolves.toHaveLength(exact.length);
+    const oversized = new Uint8Array(4 * 1024 * 1024 + 1);
+    await expect(readWithChunks(oversized, [4 * 1024 * 1024 - 3, 2, 1])).rejects.toThrow("artifact_too_large");
+  });
+
+  it("propagates read errors", async () => {
+    const handle = { read: async () => { throw new Error("read failure"); } };
+    await expect(readBoundedArtifactFromHandle(handle)).rejects.toThrow("read failure");
   });
 });

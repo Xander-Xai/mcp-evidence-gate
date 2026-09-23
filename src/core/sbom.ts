@@ -1,5 +1,6 @@
 import { parseDigest, sha256Bytes, sha256Artifact } from "./digest.js";
 import { open, readFile, stat } from "node:fs/promises";
+import { readBoundedArtifactFromHandle } from "./bounded-reader.js";
 
 export type SbomAdmissionStatus = "pass" | "inconclusive" | "blocked" | "not-provided";
 
@@ -417,10 +418,7 @@ export async function verifySbomEvidence(
 async function readBoundedArtifact(path: string): Promise<Buffer> {
   const handle = await open(path, "r");
   try {
-    const buffer = Buffer.alloc(maxEmbeddedManifestBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > maxEmbeddedManifestBytes) throw new Error("artifact_too_large");
-    return buffer.subarray(0, bytesRead);
+    return await readBoundedArtifactFromHandle(handle);
   } finally {
     await handle.close();
   }
