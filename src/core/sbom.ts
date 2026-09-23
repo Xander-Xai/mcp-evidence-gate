@@ -49,6 +49,14 @@ export const QUALIFIED_IMAGE_METADATA_SIGNALS = Object.freeze([
 const supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 const supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
 const maxEmbeddedManifestBytes = 4 * 1024 * 1024;
+const imageManifestMediaTypes = new Set([
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json"
+]);
+const imageConfigMediaTypes = new Set([
+  "application/vnd.oci.image.config.v1+json",
+  "application/vnd.docker.container.image.v1+json"
+]);
 
 export function classifySyftSourceShape(sourceValue: unknown): SyftSourceShape {
   const source = object(sourceValue);
@@ -247,6 +255,7 @@ export async function verifySbomEvidence(
     const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : undefined;
     const userReference = userInput === undefined ? undefined : parseImageReference(userInput);
     if (userInput !== undefined && !userReference) return blocked("artifact_sbom_binding_mismatch");
+    if (userReference && source.name !== userReference.repository) return blocked("artifact_sbom_binding_mismatch");
     if (userReference?.digest) {
       let requestedVersion: string;
       try { const parsedVersion = parseDigest(source.version); requestedVersion = `sha256:${parsedVersion.hex}`; }
@@ -558,8 +567,8 @@ function isImageManifestDocument(value: unknown): value is Record<string, unknow
   const config = object(manifest?.config);
   const layers = manifest?.layers;
   if (!manifest || manifest.schemaVersion !== 2 || !config || !Array.isArray(layers)) return false;
-  if (manifest.mediaType !== undefined && !isMediaType(manifest.mediaType)) return false;
-  if (!isMediaType(config.mediaType) || !isNonNegativeSafeInteger(config.size) ||
+  if (typeof manifest.mediaType !== "string" || !imageManifestMediaTypes.has(manifest.mediaType)) return false;
+  if (typeof config.mediaType !== "string" || !imageConfigMediaTypes.has(config.mediaType) || !isNonNegativeSafeInteger(config.size) ||
       parseOptionalIdentityField(config, "digest", false).state !== "valid") return false;
   return layers.every((value) => {
     const descriptor = object(value);

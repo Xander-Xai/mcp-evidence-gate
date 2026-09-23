@@ -196,6 +196,8 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(document.source.version).toBe(requestedDigest);
     expect(document.source.id).toBe("b2814a05586591dd361d361c26bbb1e1154cfbc1544fca32785fde5e11270d07");
     expect(document.source.metadata.manifestDigest).toBe(realDigest);
+    const fixtureConfig = JSON.parse(Buffer.from(document.source.metadata.config, "base64").toString("utf8"));
+    const fixtureManifest = JSON.parse(Buffer.from(document.source.metadata.manifest, "base64").toString("utf8"));
     const envelope = (artifactSha: string, relationshipArtifactSha = artifactSha, bytes = sbomBytes, artifactSize = artifactBytes.byteLength) => ({
       schema_version: SBOM_CONSUMER_CONTRACT.envelopeSchema,
       artifact: { ref: "ghcr.io/github/github-mcp-server@" + realDigest, sha256: artifactSha, size: artifactSize },
@@ -227,8 +229,43 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     }
     expect(await withSource((source) => { source.metadata.repoDigests = []; source.metadata.tags = []; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    const fixtureConfig = JSON.parse(Buffer.from(document.source.metadata.config, "base64").toString("utf8"));
-    const fixtureManifest = JSON.parse(Buffer.from(document.source.metadata.manifest, "base64").toString("utf8"));
+    expect(await withSource((source) => { source.name = "ghcr.io/other/github-mcp-server"; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => {
+      source.metadata.userInput = `ghcr.io/other/github-mcp-server@${requestedDigest}`;
+      source.metadata.repoDigests = [`ghcr.io/other/github-mcp-server@${requestedDigest}`];
+    })).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+
+    const verifyManifestMutation = async (mutate: (manifest: Record<string, any>) => void, sourceMediaType?: string) => {
+      const changedManifest = JSON.parse(JSON.stringify(fixtureManifest)) as Record<string, any>;
+      mutate(changedManifest);
+      const changedArtifactBytes = Buffer.from(JSON.stringify(changedManifest));
+      const changedArtifactDigest = sha256Bytes(changedArtifactBytes);
+      const changedArtifactDir = await mkdtemp(join(tmpdir(), "mcp-sbom-image-media-type-"));
+      dirs.push(changedArtifactDir);
+      const changedArtifactPath = join(changedArtifactDir, "manifest.json");
+      await writeFile(changedArtifactPath, changedArtifactBytes);
+      const changedDocument = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+      changedDocument.source.id = changedArtifactDigest.slice("sha256:".length);
+      changedDocument.source.metadata.manifestDigest = changedArtifactDigest;
+      changedDocument.source.metadata.manifest = changedArtifactBytes.toString("base64");
+      if (sourceMediaType === undefined) delete changedDocument.source.metadata.mediaType;
+      else changedDocument.source.metadata.mediaType = sourceMediaType;
+      const changedSbomBytes = new TextEncoder().encode(JSON.stringify(changedDocument));
+      return verifySbomEvidence(
+        changedArtifactPath,
+        envelope(changedArtifactDigest, changedArtifactDigest, changedSbomBytes, changedArtifactBytes.byteLength),
+        changedSbomBytes
+      );
+    };
+    expect(await verifyManifestMutation((manifest) => { manifest.mediaType = "text/plain"; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await verifyManifestMutation((manifest) => { manifest.config.mediaType = "text/plain"; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await verifyManifestMutation((manifest) => {
+      manifest.mediaType = "application/vnd.oci.image.manifest.v1+json";
+      manifest.config.mediaType = "application/vnd.oci.image.config.v1+json";
+    }, "application/vnd.oci.image.manifest.v1+json")).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(document.source.metadata.layers.map((layer: any) => layer.size).reduce((sum: number, size: number) => sum + size, 0)).toBe(46854914);
     expect(fixtureManifest.layers.reduce((sum: number, layer: any) => sum + layer.size, 0)).toBe(48188928);
     expect(document.source.metadata.layers.every((layer: any, index: number) => layer.digest === fixtureConfig.rootfs.diff_ids[index])).toBe(true);

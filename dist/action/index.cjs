@@ -28705,6 +28705,14 @@ var QUALIFIED_IMAGE_METADATA_SIGNALS = Object.freeze([
 var supportedSchemaVersions = new Set(SBOM_CONSUMER_CONTRACT.schemaVersions);
 var supportedSourceTypes = new Set(SBOM_CONSUMER_CONTRACT.sourceTypes);
 var maxEmbeddedManifestBytes2 = 4 * 1024 * 1024;
+var imageManifestMediaTypes = /* @__PURE__ */ new Set([
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json"
+]);
+var imageConfigMediaTypes = /* @__PURE__ */ new Set([
+  "application/vnd.oci.image.config.v1+json",
+  "application/vnd.docker.container.image.v1+json"
+]);
 function classifySyftSourceShape(sourceValue) {
   const source = object(sourceValue);
   const metadata = object(source?.metadata);
@@ -28890,6 +28898,8 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : void 0;
     const userReference = userInput === void 0 ? void 0 : parseImageReference(userInput);
     if (userInput !== void 0 && !userReference)
+      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference && source.name !== userReference.repository)
       return blocked("artifact_sbom_binding_mismatch");
     if (userReference?.digest) {
       let requestedVersion;
@@ -29234,9 +29244,9 @@ function isImageManifestDocument(value) {
   const layers = manifest?.layers;
   if (!manifest || manifest.schemaVersion !== 2 || !config || !Array.isArray(layers))
     return false;
-  if (manifest.mediaType !== void 0 && !isMediaType(manifest.mediaType))
+  if (typeof manifest.mediaType !== "string" || !imageManifestMediaTypes.has(manifest.mediaType))
     return false;
-  if (!isMediaType(config.mediaType) || !isNonNegativeSafeInteger(config.size) || parseOptionalIdentityField(config, "digest", false).state !== "valid")
+  if (typeof config.mediaType !== "string" || !imageConfigMediaTypes.has(config.mediaType) || !isNonNegativeSafeInteger(config.size) || parseOptionalIdentityField(config, "digest", false).state !== "valid")
     return false;
   return layers.every((value2) => {
     const descriptor = object(value2);

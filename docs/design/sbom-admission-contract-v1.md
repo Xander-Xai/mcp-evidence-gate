@@ -350,6 +350,11 @@ valid digests, media types, and sizes. This prevents an identity-only claim
 from admitting arbitrary non-manifest bytes. Layer equality remains fail-closed
 and does not depend on an optional `imageID` claim.
 
+The exact image manifest must declare an OCI image-manifest or Docker schema-2
+image-manifest media type, and its config descriptor must declare an OCI image
+config or Docker image config media type. Generic syntactically valid media
+types and artifact-manifest media types are not sufficient for image admission.
+
 Every supplied `metadata.config` payload is independently bound to the exact
 image manifest `config.digest`. `imageID` is an additional config identity
 claim, not a prerequisite for config-payload binding; verified embedded
@@ -365,9 +370,10 @@ When supplied, `userInput` must be a valid image reference; a digest-qualified
 `userInput` must agree with the requested `source.version`. Supplied
 `repoDigests` must be digest-qualified references for that same repository (and
 must agree with a digest-qualified `userInput`). Supplied `tags` must be valid
-tagged references for that repository. These checks validate Syft's requested
-reference provenance claims; they do not substitute the requested digest for
-the resolved manifest digest.
+tagged references for that repository. The parsed repository must also equal
+`source.name`. These checks validate Syft's requested-reference provenance
+claims; they do not substitute the requested digest for the resolved manifest
+digest.
 
 When `source.metadata.labels` is supplied for image evidence, it must be a
 string-to-string object exactly matching the `Labels` object in the exact bound
