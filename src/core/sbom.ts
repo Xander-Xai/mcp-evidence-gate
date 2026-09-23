@@ -379,6 +379,16 @@ export async function verifySbomEvidence(
         if (sourceDigest.state !== "valid" || manifestDigest.state !== "valid" || sourceDigest.digest !== manifestDigest.digest) {
           return blocked("artifact_sbom_binding_mismatch");
         }
+        // A supplied Syft layer size is an evidence claim, not merely an
+        // aggregate input. Bind it to the exact same-index manifest
+        // descriptor and fail closed on malformed or unverifiable values.
+        if (sourceLayer && Object.prototype.hasOwnProperty.call(sourceLayer, "size")) {
+          const sourceSize = sourceLayer.size;
+          const manifestSize = manifestLayer?.size;
+          if (!isNonNegativeSafeInteger(sourceSize) || !isNonNegativeSafeInteger(manifestSize) || sourceSize !== manifestSize) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+        }
       }
     }
   } else if (sourceType === "file") {

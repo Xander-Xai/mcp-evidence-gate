@@ -29028,6 +29028,13 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         if (sourceDigest.state !== "valid" || manifestDigest.state !== "valid" || sourceDigest.digest !== manifestDigest.digest) {
           return blocked("artifact_sbom_binding_mismatch");
         }
+        if (sourceLayer && Object.prototype.hasOwnProperty.call(sourceLayer, "size")) {
+          const sourceSize = sourceLayer.size;
+          const manifestSize = manifestLayer?.size;
+          if (!isNonNegativeSafeInteger(sourceSize) || !isNonNegativeSafeInteger(manifestSize) || sourceSize !== manifestSize) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+        }
       }
     }
   } else if (sourceType === "file") {

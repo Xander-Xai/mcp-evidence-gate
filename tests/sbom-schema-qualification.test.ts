@@ -231,22 +231,32 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(await withSource((source) => { source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json"; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels }; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    expect(await withSource((source) => { source.metadata.imageSize = 46854914; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    for (const value of [null, "46854914", -1, 46854914.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(await withSource((source) => { source.metadata.imageSize = 48188928; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    for (const value of [null, "48188928", -1, 48188928.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(await withSource((source) => { source.metadata.imageSize = value; }))
         .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
-    expect(await withSource((source) => { source.metadata.imageSize = 46854915; }))
+    expect(await withSource((source) => { source.metadata.imageSize = 48188929; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.metadata.imageSize; source.metadata.layers[0].size += 1; }))
-      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size += 1; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
-    for (const value of [null, "123", -1, 1.5]) {
-      expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size = value; }))
+    const originalLayerSizes = document.source.metadata.layers.map((layer: any) => layer.size);
+    const balancedTamper = await withSource((source) => {
+      source.metadata.layers[0].size = originalLayerSizes[0] + 1;
+      source.metadata.layers[1].size = originalLayerSizes[1] - 1;
+      delete source.metadata.imageSize;
+    });
+    expect(originalLayerSizes[0] + originalLayerSizes[1]).toBe(
+      (originalLayerSizes[0] + 1) + (originalLayerSizes[1] - 1)
+    );
+    expect(balancedTamper).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    expect(await withSource((source) => { source.metadata.imageSize = 48188928; source.metadata.layers[0].size += 1; }))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    for (const value of [null, "123", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(await withSource((source) => { source.metadata.imageSize = 48188928; source.metadata.layers[0].size = value; }))
         .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
-    expect(await withSource((source) => { source.metadata.imageSize = 46854914; delete source.metadata.layers[0].size; }))
+    expect(await withSource((source) => { source.metadata.imageSize = 48188928; delete source.metadata.layers[0].size; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.metadata.imageSize; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "org.opencontainers.image.version": "wrong" }; }))
@@ -342,6 +352,11 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     const layersWithoutManifestBytes = new TextEncoder().encode(JSON.stringify(layersWithoutManifest));
     const layersWithoutManifestResult = await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, layersWithoutManifestBytes), layersWithoutManifestBytes);
     expect(layersWithoutManifestResult).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const fallbackSizeMismatch = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
+    fallbackSizeMismatch.source.metadata.layers[0].size += 1;
+    const fallbackSizeMismatchBytes = new TextEncoder().encode(JSON.stringify(fallbackSizeMismatch));
+    expect(await verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, fallbackSizeMismatchBytes), fallbackSizeMismatchBytes))
+      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     const fallbackConfigTamper = JSON.parse(JSON.stringify(layersWithoutManifest)) as Record<string, any>;
     fallbackConfigTamper.source.metadata.config = Buffer.from(JSON.stringify({ architecture: "amd64", os: "linux" })).toString("base64");
     const fallbackConfigTamperBytes = new TextEncoder().encode(JSON.stringify(fallbackConfigTamper));

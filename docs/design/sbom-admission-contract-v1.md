@@ -367,3 +367,19 @@ When `source.metadata.imageSize` is supplied, it must be a nonnegative safe
 integer. For the qualified Syft image shape, when complete supplied layer-size
 metadata is available, imageSize must equal the exact sum of those layer byte
 sizes. Malformed or contradictory supplied size claims fail closed.
+
+### Wave-3.7.13 per-layer size binding
+
+When a Syft image layer supplies a `size` claim, that size must be a
+nonnegative safe integer exactly matching the size of the corresponding
+descriptor in the exact bound image manifest. Aggregate `imageSize`
+consistency does not replace per-layer descriptor binding. This applies to
+both verified embedded manifests and the exact artifact-manifest fallback;
+layer size remains presence-sensitive when `imageSize` is absent.
+
+Wave-3.7.13:
+
+Fresh exact-head review identified that aggregate image-size validation could
+mask offsetting per-layer size mutations. Every supplied layer size is now
+compared with the corresponding descriptor in the exact bound image manifest,
+while the existing qualified aggregate `imageSize` check is retained.
