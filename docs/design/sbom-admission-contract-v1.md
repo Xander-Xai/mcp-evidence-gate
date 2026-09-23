@@ -366,20 +366,31 @@ image config. A supplied contradictory or malformed labels claim fails closed.
 When `source.metadata.imageSize` is supplied, it must be a nonnegative safe
 integer. For the qualified Syft image shape, when complete supplied layer-size
 metadata is available, imageSize must equal the exact sum of those layer byte
-sizes. Malformed or contradictory supplied size claims fail closed.
+sizes. This is Syft/Stereoscope internal consistency, not OCI descriptor-size
+binding. Malformed or contradictory supplied size claims fail closed.
 
-### Wave-3.7.13 per-layer size binding
+### Wave-3.7.13 per-layer identity and metadata semantics
 
-When a Syft image layer supplies a `size` claim, that size must be a
-nonnegative safe integer exactly matching the size of the corresponding
-descriptor in the exact bound image manifest. Aggregate `imageSize`
-consistency does not replace per-layer descriptor binding. This applies to
-both verified embedded manifests and the exact artifact-manifest fallback;
-layer size remains presence-sensitive when `imageSize` is absent.
+For the qualified Syft 1.52.0 / Stereoscope 0.3.2 producer, each
+`source.metadata.layers[i].digest` is the uncompressed layer DiffID, sourced
+from the image config's `rootfs.diff_ids[i]` when available. It therefore binds
+to that config array in layer order, not unconditionally to the manifest's
+possibly compressed `layers[i].digest`. Each supplied layer `mediaType` is
+copied from that same manifest layer descriptor and must match it exactly;
+malformed, absent-as-null, empty, or contradictory supplied values fail closed.
 
-Wave-3.7.13:
+Syft/Stereoscope layer `size` is scanner/indexer metadata (the contribution of
+layer file data sections), while OCI descriptor `size` is the byte length of
+the referenced blob. They are different claims and are not compared. Supplied
+layer sizes remain nonnegative safe integers; when the complete layer-size
+array and `imageSize` are both present, their sum must equal `imageSize`. That
+balanced consistency check does not authenticate individual scanner-derived
+sizes against OCI. Balanced per-layer size changes with unchanged aggregate
+are consequently `NOT_EXTERNALLY_BOUND` by the manifest-only consumer.
 
-Fresh exact-head review identified that aggregate image-size validation could
-mask offsetting per-layer size mutations. Every supplied layer size is now
-compared with the corresponding descriptor in the exact bound image manifest,
-while the existing qualified aggregate `imageSize` check is retained.
+The real 16.1.10 regression fixture is restored from the immutable hosted
+qualification artifact (run 35806621583, artifact 10727069484): Syft 1.52.0,
+image size 46,854,914, versus manifest descriptor size sum 48,188,928. Its
+DiffIDs happen to equal the manifest digests for this image, so a generated
+gzip-vs-uncompressed control separately exercises the compressed-layer
+mapping.

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { describe, expect, it, afterEach } from "vitest";
 import { SBOM_CONSUMER_CONTRACT, classifySyftSourceShape, loadSbomEvidence, verifySbomEvidence } from "../src/core/sbom.js";
 import { readBoundedArtifactFromHandle } from "../src/core/bounded-reader.js";
@@ -204,6 +205,12 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     });
     const exact = await verifySbomEvidence(realArtifactPath, envelope(realDigest), sbomBytes);
     expect(exact).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const fixtureConfig = JSON.parse(Buffer.from(document.source.metadata.config, "base64").toString("utf8"));
+    const fixtureManifest = JSON.parse(Buffer.from(document.source.metadata.manifest, "base64").toString("utf8"));
+    expect(document.source.metadata.layers.map((layer: any) => layer.size).reduce((sum: number, size: number) => sum + size, 0)).toBe(46854914);
+    expect(fixtureManifest.layers.reduce((sum: number, layer: any) => sum + layer.size, 0)).toBe(48188928);
+    expect(document.source.metadata.layers.every((layer: any, index: number) => layer.digest === fixtureConfig.rootfs.diff_ids[index])).toBe(true);
+    expect(document.source.metadata.layers.some((layer: any, index: number) => layer.size !== fixtureManifest.layers[index].size)).toBe(true);
     const requestedAsArtifact = await verifySbomEvidence(requestedArtifactPath, envelope(requestedDigest, requestedDigest, sbomBytes, requestedBytes.byteLength), sbomBytes);
     expect(requestedAsArtifact).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     const tampered = await verifySbomEvidence(realArtifactPath, envelope(realDigest), Uint8Array.from([...sbomBytes, 0x0a]));
@@ -231,15 +238,15 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(await withSource((source) => { source.metadata.mediaType = "application/vnd.docker.distribution.manifest.v2+json"; }))
       .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels }; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    expect(await withSource((source) => { source.metadata.imageSize = 48188928; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
-    for (const value of [null, "48188928", -1, 48188928.5, Number.MAX_SAFE_INTEGER + 1]) {
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    for (const value of [null, "46854914", -1, 46854914.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(await withSource((source) => { source.metadata.imageSize = value; }))
         .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
-    expect(await withSource((source) => { source.metadata.imageSize = 48188929; }))
+    expect(await withSource((source) => { source.metadata.imageSize = 46854915; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.metadata.imageSize; source.metadata.layers[0].size += 1; }))
-      .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
     const originalLayerSizes = document.source.metadata.layers.map((layer: any) => layer.size);
     const balancedTamper = await withSource((source) => {
       source.metadata.layers[0].size = originalLayerSizes[0] + 1;
@@ -249,16 +256,67 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     expect(originalLayerSizes[0] + originalLayerSizes[1]).toBe(
       (originalLayerSizes[0] + 1) + (originalLayerSizes[1] - 1)
     );
-    expect(balancedTamper).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
-    expect(await withSource((source) => { source.metadata.imageSize = 48188928; source.metadata.layers[0].size += 1; }))
+    expect(balancedTamper).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size += 1; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     for (const value of [null, "123", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(await withSource((source) => { source.metadata.imageSize = 48188928; source.metadata.layers[0].size = value; }))
+      expect(await withSource((source) => { source.metadata.imageSize = 46854914; source.metadata.layers[0].size = value; }))
         .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
-    expect(await withSource((source) => { source.metadata.imageSize = 48188928; delete source.metadata.layers[0].size; }))
+    expect(await withSource((source) => { source.metadata.imageSize = 46854914; delete source.metadata.layers[0].size; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { delete source.metadata.imageSize; })).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    expect(await withSource((source) => { source.metadata.layers[0].mediaType = fixtureManifest.layers[0].mediaType; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    for (const value of ["application/example.invalid", null, "", 123]) {
+      expect(await withSource((source) => { source.metadata.layers[0].mediaType = value; }))
+        .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    }
+    expect(await withSource((source) => { delete source.metadata.layers[0].mediaType; }))
+      .toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+
+    // A deterministic compressed blob gives a distinct descriptor digest and
+    // uncompressed DiffID; Syft's layer digest must bind to the latter.
+    const compressedControlDir = await mkdtemp(join(tmpdir(), "mcp-sbom-compressed-layer-"));
+    dirs.push(compressedControlDir);
+    const compressedControlArtifactPath = join(compressedControlDir, "manifest.json");
+    const compressedControl = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    const rawLayer = Buffer.from("synthetic uncompressed layer bytes for DiffID control");
+    const compressedLayer = gzipSync(rawLayer);
+    const expectedDiffId = sha256Bytes(rawLayer);
+    const compressedBlobDigest = sha256Bytes(compressedLayer);
+    expect(compressedBlobDigest).not.toBe(expectedDiffId);
+    const compressedConfig = JSON.parse(Buffer.from(compressedControl.source.metadata.config, "base64").toString("utf8"));
+    compressedConfig.rootfs.diff_ids[0] = expectedDiffId;
+    const compressedConfigBytes = Buffer.from(JSON.stringify(compressedConfig));
+    const compressedConfigDigest = sha256Bytes(compressedConfigBytes);
+    const compressedManifest = JSON.parse(Buffer.from(compressedControl.source.metadata.manifest, "base64").toString("utf8"));
+    compressedManifest.config.digest = compressedConfigDigest;
+    compressedManifest.config.size = compressedConfigBytes.byteLength;
+    compressedManifest.layers[0].digest = compressedBlobDigest;
+    compressedManifest.layers[0].size = compressedLayer.byteLength;
+    const compressedManifestBytes = Buffer.from(JSON.stringify(compressedManifest));
+    const compressedManifestDigest = sha256Bytes(compressedManifestBytes);
+    await writeFile(compressedControlArtifactPath, compressedManifestBytes);
+    compressedControl.source.id = compressedManifestDigest.slice("sha256:".length);
+    compressedControl.source.version = compressedManifestDigest;
+    compressedControl.source.metadata.manifestDigest = compressedManifestDigest;
+    compressedControl.source.metadata.imageID = compressedConfigDigest;
+    compressedControl.source.metadata.manifest = compressedManifestBytes.toString("base64");
+    compressedControl.source.metadata.config = compressedConfigBytes.toString("base64");
+    compressedControl.source.metadata.layers[0].digest = expectedDiffId;
+    const verifyCompressedControl = async (sourceDocument: Record<string, any>) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(sourceDocument));
+      return verifySbomEvidence(
+        compressedControlArtifactPath,
+        envelope(compressedManifestDigest, compressedManifestDigest, bytes, compressedManifestBytes.byteLength),
+        bytes
+      );
+    };
+    expect(await verifyCompressedControl(compressedControl)).toMatchObject({ status: "pass", schemaVersion: "16.1.10" });
+    const wrongCompressedDigest = JSON.parse(JSON.stringify(compressedControl)) as Record<string, any>;
+    wrongCompressedDigest.source.metadata.layers[0].digest = compressedBlobDigest;
+    expect(await verifyCompressedControl(wrongCompressedDigest)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "org.opencontainers.image.version": "wrong" }; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { const { "org.opencontainers.image.version": _removed, ...labels } = source.metadata.labels; source.metadata.labels = labels; }))

@@ -28913,6 +28913,20 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       if (layerSizeTotal !== imageSizeClaim)
         return blocked("artifact_sbom_binding_mismatch");
     }
+    if (metadata && Array.isArray(metadata.layers)) {
+      for (const layer of metadata.layers) {
+        const layerObject = object(layer);
+        if (layerObject && Object.prototype.hasOwnProperty.call(layerObject, "size") && !isNonNegativeSafeInteger(layerObject.size)) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        if (layerObject && Object.prototype.hasOwnProperty.call(layerObject, "mediaType")) {
+          const mediaType = layerObject.mediaType;
+          if (typeof mediaType !== "string" || !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(mediaType)) {
+            return blocked("artifact_sbom_binding_mismatch");
+          }
+        }
+      }
+    }
     let embeddedConfigDigest;
     let embeddedConfigDocument;
     let embeddedConfigPayloadDigest;
@@ -29024,16 +29038,23 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
         const sourceLayer = object(metadata.layers[index]);
         const manifestLayer = object(embeddedLayers[index]);
         const sourceDigest = parseOptionalIdentityField(sourceLayer, "digest", false);
-        const manifestDigest = parseOptionalIdentityField(manifestLayer, "digest", false);
-        if (sourceDigest.state !== "valid" || manifestDigest.state !== "valid" || sourceDigest.digest !== manifestDigest.digest) {
+        const configRootfs = object(embeddedConfigDocument?.rootfs);
+        const diffIds = configRootfs?.diff_ids;
+        let diffId;
+        try {
+          if (Array.isArray(diffIds)) {
+            const parsedDiffId = parseDigest(diffIds[index]);
+            diffId = `sha256:${parsedDiffId.hex}`;
+          }
+        } catch {
           return blocked("artifact_sbom_binding_mismatch");
         }
-        if (sourceLayer && Object.prototype.hasOwnProperty.call(sourceLayer, "size")) {
-          const sourceSize = sourceLayer.size;
-          const manifestSize = manifestLayer?.size;
-          if (!isNonNegativeSafeInteger(sourceSize) || !isNonNegativeSafeInteger(manifestSize) || sourceSize !== manifestSize) {
-            return blocked("artifact_sbom_binding_mismatch");
-          }
+        if (sourceDigest.state !== "valid" || !Array.isArray(diffIds) || diffIds.length !== metadata.layers.length || !diffId || sourceDigest.digest !== diffId) {
+          return blocked("artifact_sbom_binding_mismatch");
+        }
+        const sourceMediaType = sourceLayer?.mediaType;
+        if (sourceMediaType !== void 0 && (typeof sourceMediaType !== "string" || sourceMediaType !== manifestLayer?.mediaType)) {
+          return blocked("artifact_sbom_binding_mismatch");
         }
       }
     }
