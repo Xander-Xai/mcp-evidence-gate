@@ -354,6 +354,70 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
     const wrongCompressedDigest = JSON.parse(JSON.stringify(compressedControl)) as Record<string, any>;
     wrongCompressedDigest.source.metadata.layers[0].digest = compressedBlobDigest;
     expect(await verifyCompressedControl(wrongCompressedDigest)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+
+    const configSizeControlDir = await mkdtemp(join(tmpdir(), "mcp-sbom-config-size-control-"));
+    dirs.push(configSizeControlDir);
+    const configSizeControlPath = join(configSizeControlDir, "manifest.json");
+    const configSizeControl = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    const originalConfigBytes = Buffer.from(configSizeControl.source.metadata.config, "base64");
+    const longerConfigBytes = Buffer.concat([originalConfigBytes, Buffer.from(" ")]);
+    const longerConfigDigest = sha256Bytes(longerConfigBytes);
+    const configSizeManifest = JSON.parse(Buffer.from(configSizeControl.source.metadata.manifest, "base64").toString("utf8"));
+    configSizeManifest.config.digest = longerConfigDigest;
+    const configSizeManifestBytes = Buffer.from(JSON.stringify(configSizeManifest));
+    const configSizeManifestDigest = sha256Bytes(configSizeManifestBytes);
+    await writeFile(configSizeControlPath, configSizeManifestBytes);
+    configSizeControl.source.id = configSizeManifestDigest.slice("sha256:".length);
+    configSizeControl.source.version = configSizeManifestDigest;
+    configSizeControl.source.metadata.manifestDigest = configSizeManifestDigest;
+    configSizeControl.source.metadata.imageID = longerConfigDigest;
+    configSizeControl.source.metadata.manifest = configSizeManifestBytes.toString("base64");
+    configSizeControl.source.metadata.config = longerConfigBytes.toString("base64");
+    const configSizeControlBytes = new TextEncoder().encode(JSON.stringify(configSizeControl));
+    expect(await verifySbomEvidence(
+      configSizeControlPath,
+      envelope(configSizeManifestDigest, configSizeManifestDigest, configSizeControlBytes, configSizeManifestBytes.byteLength),
+      configSizeControlBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    const configSizeFallback = JSON.parse(JSON.stringify(configSizeControl)) as Record<string, any>;
+    delete configSizeFallback.source.metadata.manifest;
+    const configSizeFallbackBytes = new TextEncoder().encode(JSON.stringify(configSizeFallback));
+    expect(await verifySbomEvidence(
+      configSizeControlPath,
+      envelope(configSizeManifestDigest, configSizeManifestDigest, configSizeFallbackBytes, configSizeManifestBytes.byteLength),
+      configSizeFallbackBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+
+    const invalidUtf8ManifestDir = await mkdtemp(join(tmpdir(), "mcp-sbom-invalid-utf8-manifest-"));
+    dirs.push(invalidUtf8ManifestDir);
+    const invalidUtf8ManifestPath = join(invalidUtf8ManifestDir, "manifest.json");
+    const invalidUtf8Manifest = { ...fixtureManifest, invalidUtf8Field: "x" };
+    const invalidUtf8ManifestBytes = Buffer.from(JSON.stringify(invalidUtf8Manifest));
+    const invalidUtf8Marker = Buffer.from('"invalidUtf8Field":"x"');
+    const invalidUtf8FieldOffset = invalidUtf8ManifestBytes.indexOf(invalidUtf8Marker);
+    expect(invalidUtf8FieldOffset).toBeGreaterThanOrEqual(0);
+    invalidUtf8ManifestBytes[invalidUtf8FieldOffset + invalidUtf8Marker.byteLength - 2] = 0xff;
+    const invalidUtf8ManifestDigest = sha256Bytes(invalidUtf8ManifestBytes);
+    await writeFile(invalidUtf8ManifestPath, invalidUtf8ManifestBytes);
+    const invalidUtf8Embedded = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    invalidUtf8Embedded.source.id = invalidUtf8ManifestDigest.slice("sha256:".length);
+    invalidUtf8Embedded.source.version = invalidUtf8ManifestDigest;
+    invalidUtf8Embedded.source.metadata.manifestDigest = invalidUtf8ManifestDigest;
+    invalidUtf8Embedded.source.metadata.manifest = invalidUtf8ManifestBytes.toString("base64");
+    const invalidUtf8EmbeddedBytes = new TextEncoder().encode(JSON.stringify(invalidUtf8Embedded));
+    expect(await verifySbomEvidence(
+      invalidUtf8ManifestPath,
+      envelope(invalidUtf8ManifestDigest, invalidUtf8ManifestDigest, invalidUtf8EmbeddedBytes, invalidUtf8ManifestBytes.byteLength),
+      invalidUtf8EmbeddedBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
+    const invalidUtf8Fallback = JSON.parse(JSON.stringify(invalidUtf8Embedded)) as Record<string, any>;
+    delete invalidUtf8Fallback.source.metadata.manifest;
+    const invalidUtf8FallbackBytes = new TextEncoder().encode(JSON.stringify(invalidUtf8Fallback));
+    expect(await verifySbomEvidence(
+      invalidUtf8ManifestPath,
+      envelope(invalidUtf8ManifestDigest, invalidUtf8ManifestDigest, invalidUtf8FallbackBytes, invalidUtf8ManifestBytes.byteLength),
+      invalidUtf8FallbackBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { source.metadata.labels = { ...source.metadata.labels, "org.opencontainers.image.version": "wrong" }; }))
       .toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => { const { "org.opencontainers.image.version": _removed, ...labels } = source.metadata.labels; source.metadata.labels = labels; }))

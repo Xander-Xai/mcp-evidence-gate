@@ -282,8 +282,10 @@ export async function verifySbomEvidence(
       }
     }
     let embeddedConfigDigest: string | undefined;
+    let embeddedConfigSize: number | undefined;
     let embeddedConfigDocument: Record<string, unknown> | undefined;
     let embeddedConfigPayloadDigest: string | undefined;
+    let embeddedConfigPayloadSize: number | undefined;
     let embeddedLayers: unknown;
     let verifiedManifestMediaType: string | undefined;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
@@ -300,7 +302,7 @@ export async function verifySbomEvidence(
         return blocked("artifact_sbom_binding_mismatch");
       }
       try {
-        const parsedEmbedded = object(JSON.parse(new TextDecoder().decode(embeddedBytes)));
+        const parsedEmbedded = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(embeddedBytes)));
         if (!isImageManifestDocument(parsedEmbedded)) return blocked("artifact_sbom_binding_mismatch");
         const config = object(parsedEmbedded?.config);
         if (!config) return blocked("artifact_sbom_binding_mismatch");
@@ -311,6 +313,7 @@ export async function verifySbomEvidence(
         const configDigest = parseOptionalIdentityField(config, "digest", false);
         if (configDigest.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
         embeddedConfigDigest = configDigest.digest;
+        embeddedConfigSize = config?.size as number;
         embeddedConfigDocument = config;
         embeddedLayers = parsedEmbedded.layers;
       } catch {
@@ -323,12 +326,16 @@ export async function verifySbomEvidence(
         return blocked("artifact_sbom_binding_mismatch");
       }
       const configBytes = Buffer.from(encodedConfig, "base64");
+      if (embeddedConfigSize !== undefined && configBytes.byteLength !== embeddedConfigSize) {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
       embeddedConfigPayloadDigest = sha256Bytes(configBytes);
+      embeddedConfigPayloadSize = configBytes.byteLength;
       if (imageId.state === "valid" && embeddedConfigPayloadDigest !== imageId.digest) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       try {
-        embeddedConfigDocument = object(JSON.parse(configBytes.toString("utf8")));
+        embeddedConfigDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(configBytes)));
       } catch {
         return blocked("artifact_sbom_binding_mismatch");
       }
@@ -347,7 +354,7 @@ export async function verifySbomEvidence(
         try {
           const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
-          const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
+          const artifactDocument = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(artifactBytes)));
           if (!isImageManifestDocument(artifactDocument)) return blocked("artifact_sbom_binding_mismatch");
           if (mediaTypeClaim !== undefined && (typeof artifactDocument?.mediaType !== "string" || artifactDocument.mediaType.length === 0)) {
             return blocked("artifact_sbom_binding_mismatch");
@@ -357,6 +364,7 @@ export async function verifySbomEvidence(
           const parsedConfig = parseOptionalIdentityField(config, "digest", false);
           if (parsedConfig.state !== "valid") return blocked("artifact_sbom_binding_mismatch");
           configDigest = parsedConfig.digest;
+          embeddedConfigSize = config?.size as number;
           if (!embeddedConfigDocument) embeddedConfigDocument = config;
           embeddedLayers = artifactDocument?.layers;
         } catch {
@@ -365,6 +373,9 @@ export async function verifySbomEvidence(
       }
       if (imageId.state === "valid" && imageId.digest !== configDigest) return blocked("artifact_sbom_binding_mismatch");
       if (embeddedConfigPayloadDigest && embeddedConfigPayloadDigest !== configDigest) return blocked("artifact_sbom_binding_mismatch");
+    }
+    if (embeddedConfigPayloadSize !== undefined && embeddedConfigSize !== undefined && embeddedConfigPayloadSize !== embeddedConfigSize) {
+      return blocked("artifact_sbom_binding_mismatch");
     }
     if (mediaTypeClaim !== undefined && mediaTypeClaim !== verifiedManifestMediaType) {
       return blocked("artifact_sbom_binding_mismatch");
