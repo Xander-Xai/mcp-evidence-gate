@@ -247,8 +247,11 @@ export async function verifySbomEvidence(
     const userInput = metadata && Object.prototype.hasOwnProperty.call(metadata, "userInput") ? metadata.userInput : undefined;
     const userReference = userInput === undefined ? undefined : parseImageReference(userInput);
     if (userInput !== undefined && !userReference) return blocked("artifact_sbom_binding_mismatch");
-    if (userReference?.digest && source.version.startsWith("sha256:") && userReference.digest !== source.version) {
-      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference?.digest) {
+      let requestedVersion: string;
+      try { const parsedVersion = parseDigest(source.version); requestedVersion = `sha256:${parsedVersion.hex}`; }
+      catch { return blocked("artifact_sbom_binding_mismatch"); }
+      if (userReference.digest !== requestedVersion) return blocked("artifact_sbom_binding_mismatch");
     }
     const repoDigests = metadata && Object.prototype.hasOwnProperty.call(metadata, "repoDigests") ? metadata.repoDigests : undefined;
     if (repoDigests !== undefined) {

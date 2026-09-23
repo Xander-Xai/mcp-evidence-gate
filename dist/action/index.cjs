@@ -28891,8 +28891,16 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     const userReference = userInput === void 0 ? void 0 : parseImageReference(userInput);
     if (userInput !== void 0 && !userReference)
       return blocked("artifact_sbom_binding_mismatch");
-    if (userReference?.digest && source.version.startsWith("sha256:") && userReference.digest !== source.version) {
-      return blocked("artifact_sbom_binding_mismatch");
+    if (userReference?.digest) {
+      let requestedVersion;
+      try {
+        const parsedVersion = parseDigest(source.version);
+        requestedVersion = `sha256:${parsedVersion.hex}`;
+      } catch {
+        return blocked("artifact_sbom_binding_mismatch");
+      }
+      if (userReference.digest !== requestedVersion)
+        return blocked("artifact_sbom_binding_mismatch");
     }
     const repoDigests = metadata && Object.prototype.hasOwnProperty.call(metadata, "repoDigests") ? metadata.repoDigests : void 0;
     if (repoDigests !== void 0) {

@@ -219,7 +219,9 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       (source: Record<string, any>) => { source.metadata.tags = ["ghcr.io/other/image:latest"]; },
       (source: Record<string, any>) => { source.metadata.userInput = null; },
       (source: Record<string, any>) => { source.metadata.userInput = {}; },
-      (source: Record<string, any>) => { source.metadata.userInput = "ghcr.io/github/github-mcp-server@sha256:" + "a".repeat(64); }
+      (source: Record<string, any>) => { source.metadata.userInput = "ghcr.io/github/github-mcp-server@sha256:" + "a".repeat(64); },
+      (source: Record<string, any>) => { source.version = "not-a-digest"; },
+      (source: Record<string, any>) => { source.version = "sha256:" + "a".repeat(64); }
     ]) {
       expect(await withSource(mutate)).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     }
