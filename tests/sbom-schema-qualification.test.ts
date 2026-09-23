@@ -224,6 +224,22 @@ describe("Syft JSON 16.1.3 and 16.1.10 qualification", () => {
       const bytes = new TextEncoder().encode(JSON.stringify(mutated));
       return verifySbomEvidence(realArtifactPath, envelope(realDigest, realDigest, bytes), bytes);
     };
+    const arbitraryImageArtifactDir = await mkdtemp(join(tmpdir(), "mcp-sbom-arbitrary-image-artifact-"));
+    dirs.push(arbitraryImageArtifactDir);
+    const arbitraryImageArtifactPath = join(arbitraryImageArtifactDir, "artifact.bin");
+    const arbitraryImageArtifact = Buffer.from("these bytes are not an OCI image manifest");
+    const arbitraryImageDigest = sha256Bytes(arbitraryImageArtifact);
+    await writeFile(arbitraryImageArtifactPath, arbitraryImageArtifact);
+    const identityOnlyImage = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    identityOnlyImage.source.id = arbitraryImageDigest.slice("sha256:".length);
+    identityOnlyImage.source.version = arbitraryImageDigest;
+    identityOnlyImage.source.metadata = { userInput: "identity-only image source" };
+    const identityOnlyImageBytes = new TextEncoder().encode(JSON.stringify(identityOnlyImage));
+    expect(await verifySbomEvidence(
+      arbitraryImageArtifactPath,
+      envelope(arbitraryImageDigest, arbitraryImageDigest, identityOnlyImageBytes, arbitraryImageArtifact.byteLength),
+      identityOnlyImageBytes
+    )).toMatchObject({ status: "blocked", reasonCodes: ["artifact_sbom_binding_mismatch"] });
     expect(await withSource((source) => {
       source.id = requestedDigest.slice("sha256:".length);
       source.metadata.manifestDigest = realDigest;

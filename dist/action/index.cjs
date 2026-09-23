@@ -28934,7 +28934,8 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     let verifiedManifestMediaType;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
-      if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
+      const maxEncodedManifestLength = Math.ceil(maxEmbeddedManifestBytes2 / 3) * 4;
+      if (typeof embeddedManifest !== "string" || embeddedManifest.length > maxEncodedManifestLength || !isCanonicalBase64(embeddedManifest)) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       const embeddedBytes = Buffer.from(embeddedManifest, "base64");
@@ -28946,8 +28947,10 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
       }
       try {
         const parsedEmbedded = object(JSON.parse(new TextDecoder().decode(embeddedBytes)));
+        if (!isImageManifestDocument(parsedEmbedded))
+          return blocked("artifact_sbom_binding_mismatch");
         const config = object(parsedEmbedded?.config);
-        if (!parsedEmbedded || !config)
+        if (!config)
           return blocked("artifact_sbom_binding_mismatch");
         if (mediaTypeClaim !== void 0 && (typeof parsedEmbedded.mediaType !== "string" || parsedEmbedded.mediaType.length === 0)) {
           return blocked("artifact_sbom_binding_mismatch");
@@ -28984,7 +28987,7 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
     if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-    const needsArtifactManifest = imageId.state === "valid" || embeddedConfigPayloadDigest !== void 0 && !embeddedConfigDigest || mediaTypeClaim !== void 0 && !verifiedManifestMediaType || labelsClaim !== void 0 && !embeddedConfigDocument || metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os")) || metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers;
+    const needsArtifactManifest = true;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
@@ -28993,6 +28996,8 @@ async function verifySbomEvidence(artifactPath, envelope, sbomBytes) {
           if (sha256Bytes(artifactBytes) !== artifactDigest)
             return blocked("artifact_sbom_binding_mismatch");
           const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
+          if (!isImageManifestDocument(artifactDocument))
+            return blocked("artifact_sbom_binding_mismatch");
           if (mediaTypeClaim !== void 0 && (typeof artifactDocument?.mediaType !== "string" || artifactDocument.mediaType.length === 0)) {
             return blocked("artifact_sbom_binding_mismatch");
           }
@@ -29134,6 +29139,24 @@ function isStringMap(value) {
 }
 function isNonNegativeSafeInteger(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function isMediaType(value) {
+  return typeof value === "string" && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(value);
+}
+function isImageManifestDocument(value) {
+  const manifest = object(value);
+  const config = object(manifest?.config);
+  const layers = manifest?.layers;
+  if (!manifest || manifest.schemaVersion !== 2 || !config || !Array.isArray(layers))
+    return false;
+  if (manifest.mediaType !== void 0 && !isMediaType(manifest.mediaType))
+    return false;
+  if (!isMediaType(config.mediaType) || !isNonNegativeSafeInteger(config.size) || parseOptionalIdentityField(config, "digest", false).state !== "valid")
+    return false;
+  return layers.every((value2) => {
+    const descriptor = object(value2);
+    return !!descriptor && isMediaType(descriptor.mediaType) && isNonNegativeSafeInteger(descriptor.size) && parseOptionalIdentityField(descriptor, "digest", false).state === "valid";
+  });
 }
 function equalStringMaps(left, right) {
   const leftKeys = Object.keys(left);

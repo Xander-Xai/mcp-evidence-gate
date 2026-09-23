@@ -288,7 +288,8 @@ export async function verifySbomEvidence(
     let verifiedManifestMediaType: string | undefined;
     if (metadata && Object.prototype.hasOwnProperty.call(metadata, "manifest")) {
       const embeddedManifest = metadata.manifest;
-      if (typeof embeddedManifest !== "string" || !isCanonicalBase64(embeddedManifest)) {
+      const maxEncodedManifestLength = Math.ceil(maxEmbeddedManifestBytes / 3) * 4;
+      if (typeof embeddedManifest !== "string" || embeddedManifest.length > maxEncodedManifestLength || !isCanonicalBase64(embeddedManifest)) {
         return blocked("artifact_sbom_binding_mismatch");
       }
       const embeddedBytes = Buffer.from(embeddedManifest, "base64");
@@ -300,8 +301,9 @@ export async function verifySbomEvidence(
       }
       try {
         const parsedEmbedded = object(JSON.parse(new TextDecoder().decode(embeddedBytes)));
+        if (!isImageManifestDocument(parsedEmbedded)) return blocked("artifact_sbom_binding_mismatch");
         const config = object(parsedEmbedded?.config);
-        if (!parsedEmbedded || !config) return blocked("artifact_sbom_binding_mismatch");
+        if (!config) return blocked("artifact_sbom_binding_mismatch");
         if (mediaTypeClaim !== undefined && (typeof parsedEmbedded.mediaType !== "string" || parsedEmbedded.mediaType.length === 0)) {
           return blocked("artifact_sbom_binding_mismatch");
         }
@@ -335,12 +337,10 @@ export async function verifySbomEvidence(
     if (embeddedConfigPayloadDigest && embeddedConfigDigest && embeddedConfigPayloadDigest !== embeddedConfigDigest) {
       return blocked("artifact_sbom_binding_mismatch");
     }
-    const needsArtifactManifest = imageId.state === "valid" ||
-      (embeddedConfigPayloadDigest !== undefined && !embeddedConfigDigest) ||
-      (mediaTypeClaim !== undefined && !verifiedManifestMediaType) ||
-      (labelsClaim !== undefined && !embeddedConfigDocument) ||
-      (metadata && (Object.prototype.hasOwnProperty.call(metadata, "architecture") || Object.prototype.hasOwnProperty.call(metadata, "os"))) ||
-      (metadata && Object.prototype.hasOwnProperty.call(metadata, "layers") && !embeddedLayers);
+    // The resolved source identity binds the artifact bytes, but does not
+    // prove those bytes are an image manifest. Always validate that identity
+    // target as a bounded manifest, even when no optional image claims exist.
+    const needsArtifactManifest = true;
     if (needsArtifactManifest) {
       let configDigest = embeddedConfigDigest;
       if (!configDigest || !embeddedConfigDocument || !embeddedLayers) {
@@ -348,6 +348,7 @@ export async function verifySbomEvidence(
           const artifactBytes = await readBoundedArtifact(artifactPath);
           if (sha256Bytes(artifactBytes) !== artifactDigest) return blocked("artifact_sbom_binding_mismatch");
           const artifactDocument = object(JSON.parse(artifactBytes.toString("utf8")));
+          if (!isImageManifestDocument(artifactDocument)) return blocked("artifact_sbom_binding_mismatch");
           if (mediaTypeClaim !== undefined && (typeof artifactDocument?.mediaType !== "string" || artifactDocument.mediaType.length === 0)) {
             return blocked("artifact_sbom_binding_mismatch");
           }
@@ -476,6 +477,27 @@ function isStringMap(value: unknown): value is Record<string, string> {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isMediaType(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(value);
+}
+
+/** Validate the structural descriptors of an OCI or Docker schema-2 image manifest. */
+function isImageManifestDocument(value: unknown): value is Record<string, unknown> {
+  const manifest = object(value);
+  const config = object(manifest?.config);
+  const layers = manifest?.layers;
+  if (!manifest || manifest.schemaVersion !== 2 || !config || !Array.isArray(layers)) return false;
+  if (manifest.mediaType !== undefined && !isMediaType(manifest.mediaType)) return false;
+  if (!isMediaType(config.mediaType) || !isNonNegativeSafeInteger(config.size) ||
+      parseOptionalIdentityField(config, "digest", false).state !== "valid") return false;
+  return layers.every((value) => {
+    const descriptor = object(value);
+    return !!descriptor && isMediaType(descriptor.mediaType) &&
+      isNonNegativeSafeInteger(descriptor.size) &&
+      parseOptionalIdentityField(descriptor, "digest", false).state === "valid";
+  });
 }
 
 function equalStringMaps(left: Record<string, string>, right: Record<string, string>): boolean {

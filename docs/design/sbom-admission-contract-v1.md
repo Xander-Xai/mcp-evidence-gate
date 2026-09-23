@@ -343,9 +343,11 @@ All image-native metadata fields in the qualified Syft image shape participate
 in source classification, including `mediaType`, `imageSize`, `repoDigests`,
 `tags`, and `labels`. Presence is sufficient for shape classification; malformed
 values remain image-shaped evidence and cannot silently downgrade to file
-binding. Manifest fallback is demand-driven: config, platform, or layer
-validation independently requires loading the exact bound artifact manifest when
-no verified embedded manifest is available. Layer equality remains fail-closed
+binding. Every image-shaped source must bind to and parse the bounded exact
+artifact manifest, even when optional config, platform, layer, and media type
+claims are absent. Its schema version and config/layer descriptors must have
+valid digests, media types, and sizes. This prevents an identity-only claim
+from admitting arbitrary non-manifest bytes. Layer equality remains fail-closed
 and does not depend on an optional `imageID` claim.
 
 Every supplied `metadata.config` payload is independently bound to the exact
