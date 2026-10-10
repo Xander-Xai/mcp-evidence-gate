@@ -4,11 +4,11 @@
 
 Built an experimental TypeScript verifier and CI release gate for evidence-scoped MCP security receipts, with schema validation, exact-byte digest binding, freshness and scope policy checks, deterministic multi-receipt composition, and a Node 24 GitHub Action.
 
-## Optional detail, only after PR #24 is merged and released
+## Optional detail, after PR #24 merge
 
-Added bounded, digest-bound admission for explicitly qualified Syft JSON SBOM versions, while keeping inventory evidence separate from vulnerability scan verdicts and release policy.
+Added bounded, digest-bound admission on main for explicitly qualified Syft JSON SBOM versions, while keeping inventory evidence separate from vulnerability scan verdicts and release policy. This feature is not in the published alpha release; describe it as merged source code, not as a released capability.
 
-Until merge/release, identify SBOM qualification as an **open PR with local validation**, not as a released Core feature.
+Until a separately approved release is published, identify SBOM qualification as **merged to main but unreleased**, not as a shipped package or Action capability.
 
 ## Claims to exclude
 

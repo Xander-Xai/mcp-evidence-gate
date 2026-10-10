@@ -1,6 +1,6 @@
 # Final Test Report
 
-Audit date: 2026-10-10 (Asia/Shanghai)
+Audit snapshot: 2026-10-10 to 2026-10-11 (Asia/Shanghai). The initial test record below is retained as original run evidence; the addendum records final PR and main results.
 
 ## Scope and checkouts
 
@@ -33,7 +33,7 @@ After adding the config on the isolated branch, I ran that exact config against 
 
 ## SBOM PR local tests
 
-At the PR head before the review patch, `pnpm test` passed 12 files / 107 tests, `pnpm build` passed, and `pnpm lint` passed. The same commands passed again after the bounded-read fix. That fix was committed and normally pushed as `bddb49595b69b78eb46903b1f15bc09cf01eec23`; fresh GitHub `verify` runs [38053411591](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38053411591) and [38053415832](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38053415832) both succeeded on this exact head. PR remains open with no recorded review decision.
+At the PR head before the review patch, `pnpm test` passed 12 files / 107 tests, `pnpm build` passed, and `pnpm lint` passed. The bounded-read fix was committed and normally pushed as `bddb49595b69b78eb46903b1f15bc09cf01eec23`; its then-current GitHub checks passed. Final post-rebase local and hosted evidence is recorded in the closeout addendum below.
 
 ## Remote checks and evidence boundary
 
@@ -51,9 +51,18 @@ No claim in this report treats local tests, Dogfood, an open PR, or discussion a
 | Clean Core local suite, build, TypeScript lint | **PASS** | 97 tests passed three times; build and lint pass on clean main worktree. |
 | Test isolation in the reported dirty checkout | **PASS** | The new direct-file include run from that checkout passed 97 tests without changing its nested worktree. |
 | Finalization branch hosted CI | **PASS** | Full CI run 38054023018 passed on `ff9b13471bdc3e43d843cc8a675a061812b2beda`. |
-| Core latest full hosted CI on main | **NOT_VERIFIED** | The latest inspected main run was Profile Drift Sentinel, not the full CI workflow on a new local commit. |
-| PR #24 code and CI at `bddb495…` | **PASS** | 107 local tests/build/lint and both current GitHub CI runs pass. |
-| PR #24 approval/merge | **BLOCKED** | PR remains open; no review decision is recorded. No merge was attempted. |
+| Core latest full hosted CI on main | **PASS** | Main CI run 38072948125 passed on merge commit `69790b2056beff9a746f6bc409f01aad167cd38b`. |
+| PR #24 code and CI at `61bc841…` | **PASS** | 107 local tests/build/typecheck/lint and both GitHub `verify` runs pass on updated head. |
+| PR #24 merge | **PASS** | PR #24 merged on 2026-10-10; merge commit `69790b2056beff9a746f6bc409f01aad167cd38b`. No Release was created. |
 | Dogfood runs against its audit-date main | **NOT_VERIFIED** | Available acceptance runs pass but predate Dogfood main SHA `4ecfe657…`. |
 | Registry #1404 formal adoption | **NOT_VERIFIED** | Proposal remains open and unmerged; pin compatibility is not adoption. |
 | Verified third-party adoption or production coverage | **NOT_VERIFIED** | No qualifying evidence is asserted by this audit. |
+
+## Final closeout addendum (2026-10-11)
+
+- Finalization PR [#25](https://github.com/Xander-Xai/mcp-evidence-gate/pull/25) merged by squash. Main CI run [38072948125](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38072948125) passed on the PR #24 merge commit.
+- PR #24 was updated from new main using a normal merge commit (`61bc8419472979fdc10f2bae9574f80af734ddc7`), then pushed without force. Both exact-head `verify` runs [38072850645](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38072850645) and [38072854105](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38072854105) passed. The refreshed PR worktree passed `pnpm install --frozen-lockfile`, `pnpm test` (107/107), `pnpm build`, `pnpm typecheck`, `pnpm lint`, CI Hygiene (4/4), profile-drift tests (15/15), profile-drift check, and `node dist/cli.js --help`.
+- `dist/action/index.cjs` had no generated diff after build; GitHub CI also passed its generated bundle check and CLI smoke test.
+- Dogfood main remains `4ecfe657209125092c0cf4964e783c648d707c8d`. Its latest relevant hosted runs remain the historical 2026-09-24 runs listed above, so they are **not verification of PR #24**. Dogfood is project-owned integration evidence, not third-party adoption.
+- After the merges, main is `69790b2056beff9a746f6bc409f01aad167cd38b`; the release list remains at `v0.1.0-alpha.3`. The merged SBOM qualification is on main but not in a published package/action release.
+- Branch audit: `feat/npm-package-coverage-contract` at `27f66f977a94f7046403ef42ad38dd99f7fbc106` had its package coverage implementation merged by PR #22 (`da0b697…`); its remaining proposal document is superseded by the implemented PR #23 contract. It has no active worktree and was eligible for cleanup. `feat/sbom-admission-contract-v1` (`50f1138…`), `feat/syft-json-16-1-10` (`61bc841…`), and `codex/finalization-20261010` (`dd6d402…`) remain referenced by existing worktrees and were retained. The original checkout's untracked files and nested worktree were left untouched.
