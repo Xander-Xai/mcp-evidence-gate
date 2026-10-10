@@ -38,6 +38,7 @@ At the PR head before the review patch, `pnpm test` passed 12 files / 107 tests,
 ## Remote checks and evidence boundary
 
 - On 2026-10-10, the Core Registry Profile Drift Sentinel succeeded on main SHA `7c6d7089d25a24ead7a42a3a96319fff2bbeac0a` (run [38052536717](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38052536717)). This is not a substitute for a full CI run on local changes.
+- The isolated finalization branch was pushed as `ff9b13471bdc3e43d843cc8a675a061812b2beda`; full GitHub CI run [38054023018](https://github.com/Xander-Xai/mcp-evidence-gate/actions/runs/38054023018) passed, including typecheck, Core tests, CI Hygiene, profile-drift tests/check, build, bundle check, and CLI smoke test. Hosted annotations warn that pinned checkout/setup-node/upload-artifact actions currently target Node 20 and are being forced to Node 24; the job passed. Review those action runtime pins during routine maintenance.
 - PR #24’s two GitHub `verify` checks were green at head `20798b6166132b6eee72e97801368b23755f6b5d` before the bounded-read patch.
 - Dogfood main is `4ecfe657209125092c0cf4964e783c648d707c8d`. Relevant hosted acceptance runs at `0cf05513eebd2f4aa378c13516d6569812e6bdc3` completed successfully on 2026-09-24: [Core adversarial](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood/actions/runs/36017054852), [Dogfood Action matrix](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood/actions/runs/36017055385), [package proof](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood/actions/runs/36017343180), and [external replay](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood/actions/runs/36017352012). These runs predate Dogfood’s current main and are project-owned acceptance evidence.
 
@@ -49,6 +50,7 @@ No claim in this report treats local tests, Dogfood, an open PR, or discussion a
 |---|---|---|
 | Clean Core local suite, build, TypeScript lint | **PASS** | 97 tests passed three times; build and lint pass on clean main worktree. |
 | Test isolation in the reported dirty checkout | **PASS** | The new direct-file include run from that checkout passed 97 tests without changing its nested worktree. |
+| Finalization branch hosted CI | **PASS** | Full CI run 38054023018 passed on `ff9b13471bdc3e43d843cc8a675a061812b2beda`. |
 | Core latest full hosted CI on main | **NOT_VERIFIED** | The latest inspected main run was Profile Drift Sentinel, not the full CI workflow on a new local commit. |
 | PR #24 code and CI at `bddb495…` | **PASS** | 107 local tests/build/lint and both current GitHub CI runs pass. |
 | PR #24 approval/merge | **BLOCKED** | PR remains open; no review decision is recorded. No merge was attempted. |
