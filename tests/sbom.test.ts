@@ -13,7 +13,7 @@ async function fixture() {
   await writeFile(artifactPath, "wave-3-5-artifact");
   const artifact = sha256Bytes(new TextEncoder().encode("wave-3-5-artifact"));
   const body = (sourceDigest = artifact, artifacts: unknown[] = [{ id: "pkg-1", name: "demo", version: "1.0.0", type: "library" }]) =>
-    JSON.stringify({ schema: { version: "16.1.3" }, source: { name: "artifact.bin", version: sourceDigest }, artifacts });
+    JSON.stringify({ schema: { version: "16.1.3" }, source: { name: "artifact.bin", version: sourceDigest, type: "file", metadata: { digests: [{ algorithm: "sha256", value: sourceDigest.slice("sha256:".length) }] } }, artifacts });
   const sbomBytes = new TextEncoder().encode(body());
   const envelope = () => ({
     schema_version: "project-defined-sbom-evidence-v1",
@@ -65,7 +65,7 @@ describe("SBOM admission v1", () => {
     expect(composeSbomDecision("pass", "blocked")).toBe("fail");
   });
 
-  it("rejects an oversized SBOM path before reading its bytes", async () => {
+  it("rejects oversized SBOM and envelope files during bounded reads", async () => {
     const f = await fixture();
     const envelopePath = join(f.dir, "envelope.json");
     const oversizedPath = join(f.dir, "oversized.sbom");
@@ -73,6 +73,11 @@ describe("SBOM admission v1", () => {
     await writeFile(oversizedPath, "");
     await truncate(oversizedPath, SBOM_RESOURCE_LIMITS.maxSbomBytes + 1);
     expect(await loadSbomEvidence(envelopePath, oversizedPath)).toEqual({ status: "result", result: { status: "inconclusive", reasonCodes: ["sbom_size_limit_exceeded"] } });
+
+    const oversizedEnvelopePath = join(f.dir, "oversized-envelope.json");
+    await writeFile(oversizedEnvelopePath, "");
+    await truncate(oversizedEnvelopePath, SBOM_RESOURCE_LIMITS.maxSbomBytes + 1);
+    expect(await loadSbomEvidence(oversizedEnvelopePath, envelopePath)).toEqual({ status: "result", result: { status: "inconclusive", reasonCodes: ["sbom_size_limit_exceeded"] } });
   });
 
   it("blocks a Syft source metadata mismatch", async () => {
