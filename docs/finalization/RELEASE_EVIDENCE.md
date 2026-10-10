@@ -1,14 +1,15 @@
 # Release Evidence and Claim Boundaries
 
-Audit snapshot: 2026-10-10 (Asia/Shanghai).
+Audit snapshot: 2026-10-11 (Asia/Shanghai).
 
 ## Repository and release state
 
 - Canonical repository: [Xander-Xai/mcp-evidence-gate](https://github.com/Xander-Xai/mcp-evidence-gate).
-- Default branch at audit: `main`, HEAD `7c6d7089d25a24ead7a42a3a96319fff2bbeac0a`.
-- Published releases: three alpha prereleases; latest is `v0.1.0-alpha.3` (published 2026-08-31). The open SBOM PR #24 is not part of that release.
+- Default branch at final closeout: `main`, HEAD `69790b2056beff9a746f6bc409f01aad167cd38b`.
+- Published releases: three alpha prereleases; latest is `v0.1.0-alpha.3` (published 2026-08-31). Merged SBOM PR #24 is not part of that release.
 - Base SBOM admission v1 was merged to `main` by PR #23 on 2026-09-22, after the latest alpha release; it is present on `main` but has not thereby become part of a published release. PR #24 qualifies additional Syft JSON 16.1.10 behavior.
-- Only open Core PR at audit: [#24](https://github.com/Xander-Xai/mcp-evidence-gate/pull/24), Syft JSON 16.1.10 qualification. It remains open and unmerged at `bddb49595b69b78eb46903b1f15bc09cf01eec23` after a bounded-read fix was pushed. Fresh CI was pending at report time; the previous head checks were green. No independent review decision was recorded.
+- PR [#24](https://github.com/Xander-Xai/mcp-evidence-gate/pull/24), Syft JSON 16.1.10 qualification, merged as `69790b2056beff9a746f6bc409f01aad167cd38b` after exact-head CI passed. This did not publish a new release or package.
+- Finalization PR [#25](https://github.com/Xander-Xai/mcp-evidence-gate/pull/25) merged; main CI passed on the final closeout commit. No independent open Core PR remained at closeout.
 
 ## Compatibility source
 
