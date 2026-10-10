@@ -1,5 +1,5 @@
 import { parseDigest, sha256Bytes, sha256Artifact } from "./digest.js";
-import { open, readFile, stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { readBoundedArtifactFromHandle } from "./bounded-reader.js";
 
 export type SbomAdmissionStatus = "pass" | "inconclusive" | "blocked" | "not-provided";
@@ -93,17 +93,42 @@ export async function loadSbomEvidence(
   if (!envelopePath && !sbomPath) return { status: "not-provided" };
   if (!envelopePath || !sbomPath) return { status: "result", result: inconclusive("sbom_missing") };
   try {
-    const [envelopeStat, sbomStat] = await Promise.all([stat(envelopePath), stat(sbomPath)]);
-    if (envelopeStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes || sbomStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
-      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
-    }
-    const [envelopeBytes, sbomBytes] = await Promise.all([readFile(envelopePath), readFile(sbomPath)]);
+    const [envelopeBytes, sbomBytes] = await Promise.all([
+      readSbomInputBounded(envelopePath),
+      readSbomInputBounded(sbomPath)
+    ]);
     let envelope: unknown;
     try { envelope = JSON.parse(envelopeBytes.toString("utf8")) as unknown; }
     catch { return { status: "result", result: inconclusive("sbom_malformed") }; }
     return { status: "inputs", envelope, sbomBytes: new Uint8Array(sbomBytes) };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "sbom_size_limit_exceeded") {
+      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
+    }
     return { status: "result", result: inconclusive("sbom_missing") };
+  }
+}
+
+/** Read at most the configured limit plus one byte, independent of file stat. */
+async function readSbomInputBounded(path: string): Promise<Buffer> {
+  const handle = await open(path, "r");
+  const chunks: Buffer[] = [];
+  let totalRead = 0;
+  try {
+    while (totalRead <= SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+      const remaining = SBOM_RESOURCE_LIMITS.maxSbomBytes + 1 - totalRead;
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, totalRead);
+      if (bytesRead === 0) break;
+      totalRead += bytesRead;
+      if (totalRead > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+        throw new Error("sbom_size_limit_exceeded");
+      }
+      chunks.push(buffer.subarray(0, bytesRead));
+    }
+    return Buffer.concat(chunks, totalRead);
+  } finally {
+    await handle.close();
   }
 }
 

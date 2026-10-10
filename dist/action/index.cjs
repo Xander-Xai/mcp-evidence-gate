@@ -28738,11 +28738,10 @@ async function loadSbomEvidence(envelopePath, sbomPath) {
   if (!envelopePath || !sbomPath)
     return { status: "result", result: inconclusive("sbom_missing") };
   try {
-    const [envelopeStat, sbomStat] = await Promise.all([(0, import_promises2.stat)(envelopePath), (0, import_promises2.stat)(sbomPath)]);
-    if (envelopeStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes || sbomStat.size > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
-      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
-    }
-    const [envelopeBytes, sbomBytes] = await Promise.all([(0, import_promises2.readFile)(envelopePath), (0, import_promises2.readFile)(sbomPath)]);
+    const [envelopeBytes, sbomBytes] = await Promise.all([
+      readSbomInputBounded(envelopePath),
+      readSbomInputBounded(sbomPath)
+    ]);
     let envelope;
     try {
       envelope = JSON.parse(envelopeBytes.toString("utf8"));
@@ -28750,8 +28749,33 @@ async function loadSbomEvidence(envelopePath, sbomPath) {
       return { status: "result", result: inconclusive("sbom_malformed") };
     }
     return { status: "inputs", envelope, sbomBytes: new Uint8Array(sbomBytes) };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "sbom_size_limit_exceeded") {
+      return { status: "result", result: inconclusive("sbom_size_limit_exceeded") };
+    }
     return { status: "result", result: inconclusive("sbom_missing") };
+  }
+}
+async function readSbomInputBounded(path) {
+  const handle = await (0, import_promises2.open)(path, "r");
+  const chunks = [];
+  let totalRead = 0;
+  try {
+    while (totalRead <= SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+      const remaining = SBOM_RESOURCE_LIMITS.maxSbomBytes + 1 - totalRead;
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, remaining));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, totalRead);
+      if (bytesRead === 0)
+        break;
+      totalRead += bytesRead;
+      if (totalRead > SBOM_RESOURCE_LIMITS.maxSbomBytes) {
+        throw new Error("sbom_size_limit_exceeded");
+      }
+      chunks.push(buffer.subarray(0, bytesRead));
+    }
+    return Buffer.concat(chunks, totalRead);
+  } finally {
+    await handle.close();
   }
 }
 function composeSbomDecision(existing, status) {
