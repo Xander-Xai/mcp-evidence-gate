@@ -1,1 +1,2 @@
 fixtures/artifacts/* -text
+tests/fixtures/** -text
