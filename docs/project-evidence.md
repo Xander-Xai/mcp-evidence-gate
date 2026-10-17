@@ -23,11 +23,17 @@ All timestamps are UTC and were read from the GitHub API during the audit.
 | Date | Source | Participant | Association | Substance |
 | --- | --- | --- | --- | --- |
 | 2026-06-29 | registry#1404 (open) | `eeee2345` | PR author | Opened the optional `security-scan` receipt `_meta` extension (v1) that resolves registry#1273. |
-| 2026-06-29 | registry#1404 | `JinNing6`, `HarperZ9` | none | Endorsed the digest-binding plus non-empty `scan_scope` invariant and the first-class `inconclusive` reason; `HarperZ9` closed their own competing #1405 to keep review in one place. |
-| 2026-08-26 | mcp-use#2332 (closed) | `khandrew1` | none | Replied "it would be better for you to just test it in a fork of your own"; redirected the project to a self-run fork trial. |
-| 2026-08-26 | chrome-devtools-mcp#2616 (closed) | `OrKoN` | none | Replied "we do not plan to include this right now"; explicit decline. |
-| 2026-08-27 to 2026-09-03 | registry#1404 | `Nikolife2016` | `CONTRIBUTOR` | Raised name/provenance custody drift: a byte-identical artifact can change hands without invalidating a digest-bound `clean` receipt. Published per-type corrections and a frozen deposit. |
-| 2026-09-15 to 2026-09-18 | registry#1404 | `ciceroyang` | none | Raised the scanner-crash failure mode (`AgentAuditKit` 0.6.5 reporting a crash as a clean scan, sattyamjjain/agent-audit-kit#743) and specified a completeness record that travels with the receipt. |
+| 2026-06-29 | registry#1404 | `JinNing6`, `HarperZ9` | `NONE` (registry) | Endorsed the digest-binding plus non-empty `scan_scope` invariant and the first-class `inconclusive` reason; `HarperZ9` closed their own competing #1405 to keep review in one place. |
+| 2026-08-26 | [mcp-use#2332](https://github.com/mcp-use/mcp-use/issues/2332) (closed) | `khandrew1` | `CONTRIBUTOR` (mcp-use) | Replied "it would be better for you to just test it in a fork of your own"; redirected the project to a self-run fork trial. |
+| 2026-08-26 | [chrome-devtools-mcp#2616](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2616) (closed) | `OrKoN` | `COLLABORATOR` (chrome-devtools-mcp) | Replied "we do not plan to include this right now"; explicit decline. |
+| 2026-08-27 to 2026-09-03 | registry#1404 | `Nikolife2016` | `CONTRIBUTOR` (registry) | Raised name/provenance custody drift: a byte-identical artifact can change hands without invalidating a digest-bound `clean` receipt. Published per-type corrections and a frozen deposit. |
+| 2026-09-15 to 2026-09-18 | registry#1404 | `ciceroyang` | `NONE` (registry) | Raised the scanner-crash failure mode (`AgentAuditKit` 0.6.5 reporting a crash as a clean scan, sattyamjjain/agent-audit-kit#743) and specified a completeness record that travels with the receipt. |
+
+Comment anchors (verified resolvable on 2026-10-18):
+
+- registry#1404 — `JinNing6`: [#issuecomment-4829997086](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-4829997086); `HarperZ9`: [#issuecomment-4830235887](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-4830235887), [#issuecomment-4915371125](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-4915371125); `Nikolife2016`: [#issuecomment-5435463563](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5435463563), [#issuecomment-5475661451](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5475661451), [#issuecomment-5506716341](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5506716341), [#issuecomment-5507592681](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5507592681), [#issuecomment-5520801412](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5520801412); `ciceroyang`: [#issuecomment-5675080497](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5675080497), [#issuecomment-5676822999](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5676822999), [#issuecomment-5716209319](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5716209319), [#issuecomment-5716209684](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5716209684), [#issuecomment-5716332791](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5716332791), [#issuecomment-5731764338](https://github.com/modelcontextprotocol/registry/pull/1404#issuecomment-5731764338).
+- mcp-use#2332 — `khandrew1`: [#issuecomment-5427611728](https://github.com/mcp-use/mcp-use/issues/2332#issuecomment-5427611728).
+- chrome-devtools-mcp#2616 — `OrKoN`: [#issuecomment-5426252201](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2616#issuecomment-5426252201).
 
 ### Feedback that produced a code change
 
@@ -63,6 +69,12 @@ code outside the Registry v1 receipt shape and covered by tests:
 - The PR head advanced from `20747d32` to `9c9b76e1` during the audit. The live profile-drift
   sentinel reported `NON_CONTRACT_CHANGE` with an unchanged contract digest and
   `safe_to_continue_with_pinned_profile: true`.
+- Re-verified 2026-10-18: registry#1404 is still `open` at head `9c9b76e1`, with
+  `REVIEW_REQUIRED` / `BLOCKED`, 0 reviews, and 0 review comments; the last thread comment is
+  dated 2026-09-22. No comment carries a `MEMBER` or `OWNER` association. A GitHub code search
+  for `mcp-evidence-gate` across `ciceroyang/agentgate` and `ciceroyang/mcp-supply-audit` still
+  returns 0 matches, and the `ciceroyang/agentgate` spec document still carries the quoted
+  "borrowed from the shape discussed in `modelcontextprotocol/registry#1404`" wording.
 
 ### Limitations of the external signals
 
@@ -83,7 +95,9 @@ code outside the Registry v1 receipt shape and covered by tests:
   Registry adoption.
 - The mcp-use fork-first validation, the self-reported fork trial, and the closed, unmerged
   pull request are interaction history, not upstream adoption or accepted contribution evidence.
-- chrome-devtools-mcp#2616 was explicitly declined by the project that opened it.
+- chrome-devtools-mcp#2616 was opened by this project and explicitly declined by a
+  chrome-devtools-mcp collaborator; an explicit decline is interaction history, not acceptance,
+  compatibility, or adoption evidence.
 - Dogfood, forks, issue discussions, and unmerged pull requests must not be counted as verified
   third-party usage.
 
