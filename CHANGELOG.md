@@ -16,6 +16,23 @@ All notable changes to this project are documented here.
   `fail > inconclusive > warn > pass`; empty sets fail as input errors.
 - Kept the existing single-receipt GitHub Action interface and checked-in
   Action bundle unchanged.
+- Added Syft SBOM evidence admission v1 (#23): `sbom-evidence` / `sbom` Action
+  inputs, a digest-bound CycloneDX/SPDX package inventory, and the
+  `COMPLETE` / `INCONCLUSIVE` / `BLOCKED` SBOM decision layer that stays
+  separate from receipt, integrity, and policy admission.
+- Qualified Syft JSON 16.1.10 for SBOM admission (#24).
+- Marked `tests/fixtures/**` as `-text` and added
+  `tests/fixture-bytes-integrity.test.ts` (#28) so SHA-256-pinned SBOM fixtures
+  keep their committed bytes under a CRLF-normalising checkout
+  (`core.autocrlf=true`), which previously changed their digests and broke
+  `validate_fixture_contract.py` on Windows while Linux CI stayed green.
+- Pointed the pinned receipt schema `$id`, `SECURITY.md`, `LICENSE`, and the
+  repository metadata at the canonical `Xander-Xai` owner namespace after the
+  account rename, and recorded the proposal author's 2026-08-30 endorsement of
+  the consumer-side invariants in `docs/project-evidence.md`.
+- Added regression tests for the `receipt_set_artifact_drift` and
+  `receipt_set_evaluation_time_drift` aborts, which were advertised in the
+  README but had no coverage.
 
 ## [0.1.0-alpha.3] - 2026-08-31
 - Preserved one deterministic verifier evaluation clock through policy replay
