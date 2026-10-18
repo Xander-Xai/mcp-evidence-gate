@@ -8,5 +8,5 @@ Only submit artifacts and receipts that you own or are explicitly authorized to 
 
 Please use GitHub's private vulnerability reporting flow from the repository
 Security tab when it is available. If that flow is unavailable, contact the
-repository owner privately through the GitHub profile for `yandexuanxuan`.
+repository owner privately through the GitHub profile for `Xander-Xai`.
 Do not open a public issue for an unpatched vulnerability.

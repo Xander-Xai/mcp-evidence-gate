@@ -28559,7 +28559,7 @@ var addFormatsModule = __toESM(require_dist(), 1);
 // src/profiles/registry-pr-1404/security-scan-receipt.schema.ts
 var SECURITY_SCAN_RECEIPT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://github.com/yandexuanxuan/mcp-evidence-gate/schemas/registry-pr-1404/20747d3253ba8638161dd95f1cec70df02993c22/security-scan-receipt",
+  $id: "https://github.com/Xander-Xai/mcp-evidence-gate/schemas/registry-pr-1404/20747d3253ba8638161dd95f1cec70df02993c22/security-scan-receipt",
   title: "MCP Registry #1404 SecurityScanReceipt",
   description: "Pinned experimental subset of the open MCP Registry #1404 receipt proposal.",
   type: "object",
