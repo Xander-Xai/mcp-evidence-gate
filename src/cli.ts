@@ -1,8 +1,12 @@
-import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateReceiptSet } from "./core/composition.js";
+import {
+  RECEIPT_INPUT_BUDGET,
+  readReceiptDocumentBounded,
+  readReceiptSetManifestBounded
+} from "./core/input-budget.js";
 import { evaluatePolicy, policyByName, type PolicyConfig } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
 import { composeSbomDecision, loadSbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
@@ -70,6 +74,11 @@ Options:
 Receipt-set schema:
   {"schema_version":"project-defined-receipt-set-v1","receipts":[{"receipt":"receipt.json","evidence":"evidence.json","id":"optional"}]}
   Receipt and evidence paths are resolved relative to the receipt-set file.
+
+Resource limits (input errors exit 3; evidence limits stay fail-closed):
+  Receipt JSON      4 MiB per document
+  Set manifest      4 MiB, at most 64 entries, 16 MiB total receipt bytes
+  Evidence report   16 MiB per snapshot
 
 Exit codes:
   0  PASS or WARN
@@ -143,6 +152,11 @@ function parseReceiptSetManifest(value: unknown): ReceiptSetManifest {
   }
   if (!Array.isArray(candidate.receipts) || candidate.receipts.length === 0) {
     throw new CliInputError("receipt set must contain at least one receipt");
+  }
+  if (candidate.receipts.length > RECEIPT_INPUT_BUDGET.maxReceiptSetEntries) {
+    throw new CliInputError(
+      `receipt set exceeds the ${RECEIPT_INPUT_BUDGET.maxReceiptSetEntries} entry limit`
+    );
   }
 
   const receipts = candidate.receipts.map((entry, index): ReceiptSetManifestEntry => {
@@ -310,7 +324,7 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
     const evaluatedAt = evaluationTime(parsed.now);
 
     if (parsed.command === "verify") {
-      const receipt = JSON.parse(await readFile(parsed.receipt, "utf8")) as ReceiptInput;
+      const receipt = JSON.parse((await readReceiptDocumentBounded(parsed.receipt)).text) as ReceiptInput;
       const verification = await verifyReceipt(receipt, parsed.artifact, evaluatedAt, {
         maxScanAgeMs: policy.maxScanAgeMs,
         clockSkewMs: policy.clockSkewMs,
@@ -331,13 +345,21 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
     }
 
     const setPath = resolve(parsed.set);
-    const manifest = parseReceiptSetManifest(JSON.parse(await readFile(setPath, "utf8")));
+    const manifest = parseReceiptSetManifest(JSON.parse((await readReceiptSetManifestBounded(setPath)).text));
     const setDirectory = dirname(setPath);
     const entries = [];
+    let totalReceiptBytes = 0;
     for (const item of manifest.receipts) {
       const receiptPath = resolve(setDirectory, item.receipt);
+      const document = await readReceiptDocumentBounded(receiptPath);
+      totalReceiptBytes += document.byteLength;
+      if (totalReceiptBytes > RECEIPT_INPUT_BUDGET.maxReceiptSetTotalReceiptBytes) {
+        throw new CliInputError(
+          `receipt set receipts exceed the ${RECEIPT_INPUT_BUDGET.maxReceiptSetTotalReceiptBytes} byte total input limit`
+        );
+      }
       entries.push({
-        receipt: JSON.parse(await readFile(receiptPath, "utf8")) as ReceiptInput,
+        receipt: JSON.parse(document.text) as ReceiptInput,
         ...(item.evidence ? { evidencePath: resolve(setDirectory, item.evidence) } : {}),
         ...(item.id ? { id: item.id } : {})
       });

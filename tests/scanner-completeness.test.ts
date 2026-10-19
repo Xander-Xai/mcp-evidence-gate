@@ -157,6 +157,45 @@ describe("strict scanner execution completeness policy", () => {
     const snapshot = await readEvidenceSnapshot("package-view.json", async () => Buffer.from(JSON.stringify({ scanner: { name: "trivy", version: "0.74.0" }, scanner_execution: execution })));
     expect(verifyScannerExecutionBytes(snapshot, { scanner: "trivy", scanner_version: "0.74.0" })).toMatchObject({ status: "pass" });
   });
+  it("never treats an unknown scanner contract as trusted even when the digest binds", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "mcp-evidence-gate-unknown-contract-"));
+    try {
+      const execution = { ...completeExecution(), scanner_contract: "unknown-scanner-contract-v9" };
+      const evidence = {
+        scanner: { name: "example-scanner", version: "1.0.0" },
+        scanner_execution: execution
+      };
+      const bytes = Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+      const evidencePath = resolve(directory, "evidence.json");
+      await writeFile(evidencePath, bytes);
+      const receipt: ReceiptInput = {
+        scanner: "example-scanner",
+        scanner_version: "1.0.0",
+        scanned_artifact_digest: "sha256:41f89c83905a2335098d6acf5a8fe9e490ee2b4747229e46349cfdf4e3973c78",
+        scan_scope: ["package"],
+        verdict: "clean",
+        scanned_at: "2026-08-25T00:00:00Z",
+        attestation: "publisher-asserted",
+        evidence_digest: sha256Bytes(bytes)
+      };
+      const verification = await verifyReceipt(receipt, artifactPath, now, {
+        evidencePath,
+        requireScannerExecutionCompleteness: true
+      });
+      expect(verification.checks).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "evidence_binding", status: "pass" }),
+        expect.objectContaining({ id: "scanner_execution", status: "invalid", reason: "scanner_execution_contract_unsupported" })
+      ]));
+      const evaluation = evaluatePolicy(receipt, verification, STRICT_SCANNER_COMPLETENESS_POLICY, now);
+      expect(evaluation.decision).toBe("fail");
+      expect(evaluation.integrityStatus).toBe("pass");
+      expect(evaluation.scannerExecutionStatus).toBe("malformed");
+      expect(evaluation.reasonCodes).toContain("scanner_execution_contract_unsupported");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("records the legacy permissive false-clean gap while strict policy blocks it", async () => {
     const materialized = await materialize({
       ...completeExecution(),
