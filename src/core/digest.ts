@@ -53,6 +53,12 @@ export const EVIDENCE_RESOURCE_LIMITS = Object.freeze({
  * The exact evidence bytes read for one verification attempt.  Callers must
  * pass this snapshot to every evidence consumer so a path replacement cannot
  * create a time-of-check/time-of-use gap between hashing and parsing.
+ *
+ * `readonly` is a TypeScript-level promise. At runtime, the snapshot object is
+ * frozen and `bytes` is a detached copy, so neither the path binding nor the
+ * reader's original buffer can change what the verifier consumes. The
+ * `Uint8Array` contents themselves are not deep-frozen; they are read-only by
+ * contract for the lifetime of one attempt.
  */
 export interface EvidenceSnapshot {
   readonly path: string;
@@ -93,9 +99,12 @@ function classifyEvidenceReadError(error: unknown): EvidenceSnapshotReadError {
 
 /**
  * Read evidence bytes once, under the evidence resource budget, and retain a
- * detached snapshot for this attempt. A file that is missing, unreadable, or
- * over the size limit never produces a snapshot, so it can never be treated
- * as complete, trustworthy evidence.
+ * detached snapshot for this attempt: the snapshot object is frozen and holds
+ * a copy of the reader result. Path replacement and later mutation of the
+ * reader's buffer therefore cannot change the bytes consumed by the verifier;
+ * the copied array contents are read-only by contract, not by deep freeze.
+ * A file that is missing, unreadable, or over the size limit never produces a
+ * snapshot, so it can never be treated as complete, trustworthy evidence.
  */
 export async function readEvidenceSnapshot(
   evidencePath?: string,

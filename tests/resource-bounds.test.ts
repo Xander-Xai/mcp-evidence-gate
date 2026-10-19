@@ -70,7 +70,7 @@ describe("evidence snapshot resource bounds", () => {
     });
   });
 
-  it("accepts the exact byte limit and keeps one detached, frozen snapshot", async () => {
+  it("accepts the exact byte limit with a frozen snapshot handle over a detached copy", async () => {
     const source = new Uint8Array(limit).fill(0x62);
     let reads = 0;
     const result = await readEvidenceSnapshot("at-limit.json", async () => {
@@ -82,6 +82,12 @@ describe("evidence snapshot resource bounds", () => {
     expect(result.snapshot?.bytes.byteLength).toBe(limit);
     expect(Object.is(result.snapshot?.bytes, source)).toBe(false);
     expect(Object.isFrozen(result.snapshot)).toBe(true);
+    // The freeze protects the snapshot handle, not the array contents: the
+    // copied Uint8Array is a plain view that is read-only by contract.
+    expect(Object.isFrozen(result.snapshot?.bytes)).toBe(false);
+    expect(() => {
+      (result.snapshot as { bytes: Uint8Array }).bytes = new Uint8Array(0);
+    }).toThrow(TypeError);
     source.fill(0);
     expect(result.snapshot?.bytes[0]).toBe(0x62);
   });
