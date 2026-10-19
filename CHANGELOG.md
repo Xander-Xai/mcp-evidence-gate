@@ -17,6 +17,11 @@ All notable changes to this project are documented here.
 - Added `tests/resource-bounds.test.ts` covering the evidence snapshot bounds,
   the receipt/set input budget, duplicate-path sets, and the fail-closed policy
   mapping for oversized evidence.
+- Marked the generated `dist/action/index.cjs` as `-text` and added a
+  `windows-regression` CI job that re-materializes the working tree with
+  `core.autocrlf=true` before running the test suite and the committed-bundle
+  byte comparison, so the PR #28 line-ending class cannot regress silently on
+  Windows.
 - Added project-defined multi-receipt admission composition through
   `evaluateReceiptSet()` while preserving each receipt's independent verifier
   and policy evidence.

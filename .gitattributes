@@ -1,2 +1,6 @@
 fixtures/artifacts/* -text
 tests/fixtures/** -text
+# The generated Action bundle is byte-compared against the working tree by CI
+# (`git diff --exit-code` after build). Keep its bytes identical on every
+# checkout so Windows (core.autocrlf=true) cannot rewrite the committed bundle.
+dist/action/index.cjs -text
