@@ -108,6 +108,16 @@ A receipt-set manifest is explicitly project-defined:
 
 Receipt and evidence paths are resolved relative to the manifest file. The artifact is supplied once to `verify-set`, forcing every receipt through independent binding against the same consumer-owned artifact. An empty set is rejected as input error rather than treated as PASS. See [`docs/design/multi-receipt-composition.md`](docs/design/multi-receipt-composition.md) for the frozen P2-003 semantics and boundaries.
 
+## Resource bounds
+
+Consumer-side input limits are explicit, documented, and fail closed. Every read is bounded before parsing or hashing, so an oversized input is never treated as complete, trustworthy evidence:
+
+- Evidence snapshot (`--evidence` / Action `evidence`): **16 MiB** per read. A missing, unreadable, or oversized evidence file never produces an evidence snapshot; policy reports `evidence_file_missing`, `evidence_file_read_failed`, or `evidence_size_limit_exceeded` and the decision stays INCONCLUSIVE, never PASS.
+- Receipt JSON (`--receipt`, Action `receipt`, every receipt-set entry): **4 MiB** per document.
+- Receipt-set manifest: **4 MiB**, at most **64 entries**, and **16 MiB** of total receipt bytes per set.
+
+Receipt and set violations abort as CLI input errors (exit 3) and fail the GitHub Action step; the limits are consumer-owned and do not change receipt schema semantics, policy semantics, or the pinned compatibility profile. Observed consumer documents are a few kilobytes, so the bounds leave orders of magnitude of headroom for real inputs.
+
 ## Status
 
 Phase 1 / experimental. The profile is deliberately pinned to an open, unmerged proposal. If the proposal changes, a new profile will be added instead of silently changing existing behavior.

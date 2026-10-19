@@ -27884,8 +27884,64 @@ __export(action_exports, {
 });
 module.exports = __toCommonJS(action_exports);
 var core = __toESM(require_core(), 1);
-var import_promises3 = require("node:fs/promises");
 var import_node_path = require("node:path");
+
+// src/core/bounded-reader.ts
+var import_promises = require("node:fs/promises");
+var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
+var readChunkBytes = 64 * 1024;
+async function readBoundedFromHandle(handle, maxBytes, tooLarge) {
+  const limit = maxBytes + 1;
+  const chunks = [];
+  let totalRead = 0;
+  while (totalRead < limit) {
+    const buffer = Buffer.allocUnsafe(Math.min(readChunkBytes, limit - totalRead));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, totalRead);
+    if (bytesRead === 0)
+      break;
+    chunks.push(buffer.subarray(0, bytesRead));
+    totalRead += bytesRead;
+    if (totalRead > maxBytes)
+      throw tooLarge();
+  }
+  return Buffer.concat(chunks, totalRead);
+}
+async function readBoundedArtifactFromHandle(handle) {
+  return readBoundedFromHandle(handle, maxEmbeddedManifestBytes, () => new Error("artifact_too_large"));
+}
+async function readBoundedFile(path, maxBytes, tooLarge) {
+  const handle = await (0, import_promises.open)(path, "r");
+  try {
+    return await readBoundedFromHandle(handle, maxBytes, tooLarge);
+  } finally {
+    await handle.close();
+  }
+}
+
+// src/core/input-budget.ts
+var RECEIPT_INPUT_BUDGET = Object.freeze({
+  maxReceiptJsonBytes: 4 * 1024 * 1024,
+  maxReceiptSetManifestBytes: 4 * 1024 * 1024,
+  maxReceiptSetEntries: 64,
+  maxReceiptSetTotalReceiptBytes: 16 * 1024 * 1024
+});
+var ReceiptInputBudgetExceededError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ReceiptInputBudgetExceededError";
+  }
+};
+async function readDocumentBounded(path, maxBytes, description) {
+  const bytes = await readBoundedFile(
+    path,
+    maxBytes,
+    () => new ReceiptInputBudgetExceededError(`${description} exceeds the ${maxBytes} byte input limit`)
+  );
+  return { text: bytes.toString("utf8"), byteLength: bytes.byteLength };
+}
+async function readReceiptDocumentBounded(path) {
+  return readDocumentBounded(path, RECEIPT_INPUT_BUDGET.maxReceiptJsonBytes, "receipt");
+}
 
 // src/profiles/registry-pr-1404.ts
 var REGISTRY_PR_1404_PROFILE = {
@@ -27933,7 +27989,6 @@ var REGISTRY_PR_1404_PROFILE = {
 // src/core/digest.ts
 var import_node_crypto = require("node:crypto");
 var import_node_fs = require("node:fs");
-var import_promises = require("node:fs/promises");
 var DIGEST_PATTERN = /^([a-z0-9]+):([a-f0-9]+)$/;
 var DigestError = class extends Error {
   constructor(code) {
@@ -27960,19 +28015,42 @@ function parseDigest(value) {
 function sha256Bytes(bytes) {
   return `sha256:${(0, import_node_crypto.createHash)("sha256").update(bytes).digest("hex")}`;
 }
-var readEvidenceBytes = async (path) => new Uint8Array(await (0, import_promises.readFile)(path));
+var EVIDENCE_RESOURCE_LIMITS = Object.freeze({
+  maxEvidenceSnapshotBytes: 16 * 1024 * 1024
+});
+var EvidenceSizeLimitExceededError = class extends Error {
+  constructor() {
+    super("evidence_size_limit_exceeded");
+  }
+};
+var readEvidenceBytes = async (path) => new Uint8Array(
+  await readBoundedFile(path, EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes, () => new EvidenceSizeLimitExceededError())
+);
+function classifyEvidenceReadError(error) {
+  if (error instanceof EvidenceSizeLimitExceededError)
+    return "evidence_size_limit_exceeded";
+  if (typeof error === "object" && error !== null && error.code === "ENOENT") {
+    return "evidence_file_missing";
+  }
+  return "evidence_file_read_failed";
+}
 async function readEvidenceSnapshot(evidencePath, reader = readEvidenceBytes) {
   if (!evidencePath)
     return { provided: false };
+  let source;
   try {
-    const bytes = Uint8Array.from(await reader(evidencePath));
-    return {
-      provided: true,
-      snapshot: Object.freeze({ path: evidencePath, bytes })
-    };
-  } catch {
-    return { provided: true, error: "evidence_file_missing" };
+    source = await reader(evidencePath);
+  } catch (error) {
+    return { provided: true, error: classifyEvidenceReadError(error) };
   }
+  if (source.byteLength > EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes) {
+    return { provided: true, error: "evidence_size_limit_exceeded" };
+  }
+  const bytes = Uint8Array.from(source);
+  return {
+    provided: true,
+    snapshot: Object.freeze({ path: evidencePath, bytes })
+  };
 }
 async function sha256Artifact(path) {
   const hash = (0, import_node_crypto.createHash)("sha256");
@@ -28448,6 +28526,14 @@ function evaluatePolicy(receipt, verification, policy, _now) {
       add("unsupported_evidence_digest_algorithm", "inconclusive", "The evidence digest algorithm is not supported by this verifier.");
     } else if (evidence.status === "not_present" && evidence.reason === "evidence_file_missing") {
       add("evidence_file_missing", "inconclusive", "An explicitly supplied evidence report could not be read.");
+    } else if (evidence.status === "not_present" && evidence.reason === "evidence_file_read_failed") {
+      add("evidence_file_read_failed", "inconclusive", "An explicitly supplied evidence report could not be read.");
+    } else if (evidence.status === "not_present" && evidence.reason === "evidence_size_limit_exceeded") {
+      add(
+        "evidence_size_limit_exceeded",
+        "inconclusive",
+        `The explicitly supplied evidence report exceeds the ${EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes} byte evidence snapshot limit.`
+      );
     } else if (evidence.status === "invalid") {
       add("evidence_binding_invalid", "fail", "Evidence digest binding is invalid.");
     }
@@ -28660,25 +28746,6 @@ async function verifyReceipt(receipt, artifactPath, now, freshnessOptions = {}) 
 
 // src/core/sbom.ts
 var import_promises2 = require("node:fs/promises");
-
-// src/core/bounded-reader.ts
-var maxEmbeddedManifestBytes = 4 * 1024 * 1024;
-async function readBoundedArtifactFromHandle(handle) {
-  const limit = maxEmbeddedManifestBytes + 1;
-  const buffer = Buffer.alloc(limit);
-  let totalRead = 0;
-  while (totalRead < limit) {
-    const { bytesRead } = await handle.read(buffer, totalRead, limit - totalRead, totalRead);
-    if (bytesRead === 0)
-      break;
-    totalRead += bytesRead;
-  }
-  if (totalRead > maxEmbeddedManifestBytes)
-    throw new Error("artifact_too_large");
-  return buffer.subarray(0, totalRead);
-}
-
-// src/core/sbom.ts
 var SBOM_CONSUMER_CONTRACT = Object.freeze({
   envelopeSchema: "project-defined-sbom-evidence-v1",
   format: "syft-json",
@@ -29324,7 +29391,7 @@ async function runAction() {
   const artifactPath = workspacePath(artifactInput);
   const policy = policyByName(policyInput);
   const evaluatedAt = /* @__PURE__ */ new Date();
-  const receipt = JSON.parse(await (0, import_promises3.readFile)(receiptPath, "utf8"));
+  const receipt = JSON.parse((await readReceiptDocumentBounded(receiptPath)).text);
   const verification = await verifyReceipt(receipt, artifactPath, evaluatedAt, {
     maxScanAgeMs: policy.maxScanAgeMs,
     clockSkewMs: policy.clockSkewMs,

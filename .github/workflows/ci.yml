@@ -107,3 +107,40 @@ jobs:
         env:
           DRIFT_OUTCOME: ${{ steps.profile_drift.outcome }}
         run: test "$DRIFT_OUTCOME" = success
+
+  windows-regression:
+    name: windows regression
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Re-materialize the working tree with core.autocrlf=true
+        shell: pwsh
+        run: |
+          git config core.autocrlf true
+          git rm -r --cached . | Out-Null
+          git reset --hard
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 10.33.4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test under a CRLF-normalising checkout
+        run: pnpm test
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Verify generated Action bundle is committed
+        run: git diff --exit-code

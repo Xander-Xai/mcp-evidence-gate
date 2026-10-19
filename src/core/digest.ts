@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readBoundedFile } from "./bounded-reader.js";
 import { REGISTRY_PR_1404_PROFILE } from "../profiles/registry-pr-1404.js";
 import type { Finding } from "./types.js";
 
@@ -39,43 +39,94 @@ export function sha256Bytes(bytes: Uint8Array): string {
 }
 
 /**
+ * Explicit consumer-owned resource budget for one evidence snapshot. Evidence
+ * is parsed as a single in-memory JSON document, so the read must be bounded
+ * before any parsing or hashing happens. Observed consumer evidence reports
+ * are a few kilobytes; the limit keeps worst-case parse amplification well
+ * below runner memory limits while leaving orders of magnitude of headroom.
+ */
+export const EVIDENCE_RESOURCE_LIMITS = Object.freeze({
+  maxEvidenceSnapshotBytes: 16 * 1024 * 1024
+} as const);
+
+/**
  * The exact evidence bytes read for one verification attempt.  Callers must
  * pass this snapshot to every evidence consumer so a path replacement cannot
  * create a time-of-check/time-of-use gap between hashing and parsing.
+ *
+ * `readonly` is a TypeScript-level promise. At runtime, the snapshot object is
+ * frozen and `bytes` is a detached copy, so neither the path binding nor the
+ * reader's original buffer can change what the verifier consumes. The
+ * `Uint8Array` contents themselves are not deep-frozen; they are read-only by
+ * contract for the lifetime of one attempt.
  */
 export interface EvidenceSnapshot {
   readonly path: string;
   readonly bytes: Uint8Array;
 }
 
+export type EvidenceSnapshotReadError =
+  | "evidence_file_missing"
+  | "evidence_file_read_failed"
+  | "evidence_size_limit_exceeded";
+
 export interface EvidenceSnapshotRead {
   readonly provided: boolean;
   readonly snapshot?: EvidenceSnapshot;
-  readonly error?: "evidence_file_missing";
+  readonly error?: EvidenceSnapshotReadError;
 }
 
 export type EvidenceBytesReader = (path: string) => Promise<Uint8Array>;
 
-const readEvidenceBytes: EvidenceBytesReader = async (path) =>
-  new Uint8Array(await readFile(path));
+class EvidenceSizeLimitExceededError extends Error {
+  constructor() {
+    super("evidence_size_limit_exceeded");
+  }
+}
 
-/** Read evidence bytes once and retain a detached snapshot for this attempt. */
+const readEvidenceBytes: EvidenceBytesReader = async (path) =>
+  new Uint8Array(
+    await readBoundedFile(path, EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes, () => new EvidenceSizeLimitExceededError())
+  );
+
+function classifyEvidenceReadError(error: unknown): EvidenceSnapshotReadError {
+  if (error instanceof EvidenceSizeLimitExceededError) return "evidence_size_limit_exceeded";
+  if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT") {
+    return "evidence_file_missing";
+  }
+  return "evidence_file_read_failed";
+}
+
+/**
+ * Read evidence bytes once, under the evidence resource budget, and retain a
+ * detached snapshot for this attempt: the snapshot object is frozen and holds
+ * a copy of the reader result. Path replacement and later mutation of the
+ * reader's buffer therefore cannot change the bytes consumed by the verifier;
+ * the copied array contents are read-only by contract, not by deep freeze.
+ * A file that is missing, unreadable, or over the size limit never produces a
+ * snapshot, so it can never be treated as complete, trustworthy evidence.
+ */
 export async function readEvidenceSnapshot(
   evidencePath?: string,
   reader: EvidenceBytesReader = readEvidenceBytes
 ): Promise<EvidenceSnapshotRead> {
   if (!evidencePath) return { provided: false };
+  let source: Uint8Array;
   try {
-    // Copy the reader result so later mutation of a Buffer owned by the caller
-    // cannot change the bytes consumed by the verifier.
-    const bytes = Uint8Array.from(await reader(evidencePath));
-    return {
-      provided: true,
-      snapshot: Object.freeze({ path: evidencePath, bytes })
-    };
-  } catch {
-    return { provided: true, error: "evidence_file_missing" };
+    source = await reader(evidencePath);
+  } catch (error) {
+    return { provided: true, error: classifyEvidenceReadError(error) };
   }
+  if (source.byteLength > EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes) {
+    return { provided: true, error: "evidence_size_limit_exceeded" };
+  }
+  // Copy the reader result so later mutation of a Buffer owned by the caller
+  // cannot change the bytes consumed by the verifier.
+  const bytes = Uint8Array.from(source);
+  return {
+    provided: true,
+    snapshot: Object.freeze({ path: evidencePath, bytes })
+  };
 }
 
 export async function sha256Artifact(path: string): Promise<string> {

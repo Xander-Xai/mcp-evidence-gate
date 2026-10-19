@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Bounded every consumer-side file read (`src/core/bounded-reader.ts`,
+  `src/core/input-budget.ts`): evidence snapshots are capped at 16 MiB,
+  receipt JSON and receipt-set manifests at 4 MiB, receipt sets at 64 entries
+  and 16 MiB of cumulative receipt bytes. Oversized evidence never yields a
+  snapshot and stays fail-closed (`evidence_size_limit_exceeded`,
+  `evidence_file_read_failed`); oversized receipts/sets abort as CLI input
+  errors (exit 3). Previously all three paths used unbounded `readFile()`.
+- Distinguish a missing evidence file (`evidence_file_missing`, ENOENT) from
+  an unreadable evidence path (`evidence_file_read_failed`) instead of
+  collapsing every read failure into "missing".
+- Added `tests/resource-bounds.test.ts` covering the evidence snapshot bounds,
+  the receipt/set input budget, duplicate-path sets, and the fail-closed policy
+  mapping for oversized evidence.
+- Marked the generated `dist/action/index.cjs` as `-text` and added a
+  `windows-regression` CI job that re-materializes the working tree with
+  `core.autocrlf=true` before running the test suite and the committed-bundle
+  byte comparison, so the PR #28 line-ending class cannot regress silently on
+  Windows.
 - Added project-defined multi-receipt admission composition through
   `evaluateReceiptSet()` while preserving each receipt's independent verifier
   and policy evidence.

@@ -3,6 +3,7 @@ import {
   SCANNER_EXECUTION_POLICY_VERSION,
   type ScannerExecutionOutputStatus
 } from "./scanner-execution.js";
+import { EVIDENCE_RESOURCE_LIMITS } from "./digest.js";
 import { evaluateFreshness } from "./freshness.js";
 import type { Finding, ReceiptInput, VerificationResult } from "./types.js";
 
@@ -274,6 +275,14 @@ export function evaluatePolicy(
       add("unsupported_evidence_digest_algorithm", "inconclusive", "The evidence digest algorithm is not supported by this verifier.");
     } else if (evidence.status === "not_present" && evidence.reason === "evidence_file_missing") {
       add("evidence_file_missing", "inconclusive", "An explicitly supplied evidence report could not be read.");
+    } else if (evidence.status === "not_present" && evidence.reason === "evidence_file_read_failed") {
+      add("evidence_file_read_failed", "inconclusive", "An explicitly supplied evidence report could not be read.");
+    } else if (evidence.status === "not_present" && evidence.reason === "evidence_size_limit_exceeded") {
+      add(
+        "evidence_size_limit_exceeded",
+        "inconclusive",
+        `The explicitly supplied evidence report exceeds the ${EVIDENCE_RESOURCE_LIMITS.maxEvidenceSnapshotBytes} byte evidence snapshot limit.`
+      );
     } else if (evidence.status === "invalid") {
       add("evidence_binding_invalid", "fail", "Evidence digest binding is invalid.");
     }

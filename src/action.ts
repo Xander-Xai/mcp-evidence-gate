@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
-import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { readReceiptDocumentBounded } from "./core/input-budget.js";
 import { evaluatePolicy, policyByName } from "./core/policy.js";
 import { verifyReceipt } from "./core/verify.js";
 import { composeSbomDecision, loadSbomEvidence, verifySbomEvidence, type SbomAdmissionResult } from "./core/sbom.js";
@@ -25,7 +25,7 @@ export async function runAction(): Promise<void> {
   const artifactPath = workspacePath(artifactInput);
   const policy = policyByName(policyInput);
   const evaluatedAt = new Date();
-  const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as ReceiptInput;
+  const receipt = JSON.parse((await readReceiptDocumentBounded(receiptPath)).text) as ReceiptInput;
   const verification = await verifyReceipt(receipt, artifactPath, evaluatedAt, {
     maxScanAgeMs: policy.maxScanAgeMs,
     clockSkewMs: policy.clockSkewMs,
