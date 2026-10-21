@@ -16,7 +16,7 @@ Primary maintainer: [@Xander-Xai](https://github.com/Xander-Xai)
 
 ## Current evidence
 
-- Last runtime-affecting promoted baseline: `06567c840c1d68a4b45ff2d12d6e6c32898fff11`. The earlier audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) remains an application/audit snapshot. Repository current HEAD must be resolved dynamically from GitHub; it is not hard-coded here. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
+- Last runtime-affecting promoted baseline: `06567c840c1d68a4b45ff2d12d6e6c32898fff11`. The earlier audit baseline (`eb73c152b53e376d0bb7dd55b2948d0f62bfcc39`) remains an application/audit snapshot. Runtime-affecting work has landed on `main` after `06567c8` (npm package scan-view contract, package coverage determination, Syft SBOM admission v1, Syft JSON 16.1.10 qualification, and bounded consumer-side reads), so `06567c8` is a historical marker and not the current runtime behaviour. Repository current HEAD must be resolved dynamically from GitHub; it is not hard-coded here. Three alpha prereleases exist, latest `v0.1.0-alpha.3` at `d404b38f0ac0303438b561fe7358b0eec487c962`.
 - Test counts and CI claims in historical application material are snapshot evidence tied to the audited commit. Current code should be evaluated from the checks attached to the exact commit being promoted rather than by carrying those historical counts forward.
 - Companion [dogfood repository](https://github.com/Xander-Xai/mcp-evidence-gate-dogfood) records the downstream Action matrix plus real Trivy, OSV, multi-receipt composition, OCI identity, scanner-completeness, and artifact-snapshot acceptance. These are project-owned cross-repository acceptance evidence, not third-party adoption.
 - Both the `verify` / `verify-set` CLI and the self-contained Node 24 Action are checked in. The [Trivy producer](https://github.com/Xander-Xai/mcp-evidence-producer-trivy) supplies scanner-specific receipts; the consumer still owns admission policy.
@@ -48,14 +48,14 @@ The pinned structural schema is stored at `src/profiles/registry-pr-1404/securit
 
 ## Policy layer
 
-`evaluatePolicy()` produces a project-defined release decision without changing the input receipt. It keeps the scanner's `verdict` separate from the gate decision and uses deterministic precedence: `fail > inconclusive > warn > pass`. The verifier carries one immutable `evaluatedAt` clock into policy evaluation, so historical replay does not drift with wall-clock time. Warning admission is explicit: `permissive` allows warnings as `WARN`, while strict policies block them as a policy `FAIL` (`receipt_warnings_blocked`).
+`evaluatePolicy()` produces a project-defined release decision without changing the input receipt. It keeps the scanner's `verdict` separate from the gate decision and uses deterministic precedence: `fail > inconclusive > warn > pass`. The verifier carries one immutable `evaluatedAt` clock into policy evaluation, so historical replay does not drift with wall-clock time. Warning admission is explicit and per policy: `permissive` allows warnings as `WARN`, `strict-release-example` and `strict-evidence-example` block them as a policy `FAIL` (`receipt_warnings_blocked`), and `strict-scanner-completeness` inherits `permissive`'s `warningDisposition: "allow"`, so a `warnings` verdict is admitted as `WARN` (`receipt_warnings`) under that policy.
 
 Four built-in policies are included:
 
 - `permissive`: freshness is optional, no scope is required, and all three attestation values are allowed.
 - `strict-release-example`: a project-defined metadata policy that requires freshness, `package` plus `handler-validation`, `third-party-attested`, and a maximum scan age of seven days. It does not authenticate the attestation value.
 - `strict-evidence-example`: the strict example plus a required local evidence report digest binding.
-- `strict-scanner-completeness`: an explicit local `scanner-execution-completeness-policy-v2` extension. Producer evidence reports observed execution facts; Core policy owns supported Trivy FS, OSV lockfile, and Trivy OCI contracts, required components, and allowed successful exit codes. It requires a locally supplied, digest-bound evidence report and binds receipt scanner/version to evidence scanner identity/version. Unknown contracts and producer-shortened component lists cannot pass.
+- `strict-scanner-completeness`: an explicit local `scanner-execution-completeness-policy-v2` extension. Producer evidence reports observed execution facts; Core policy owns the supported Trivy FS, Trivy npm package scan-view, OSV lockfile, and Trivy OCI contracts (plus a legacy abstract fixture contract), the required components, and the allowed successful exit codes. It requires a locally supplied, digest-bound evidence report and binds receipt scanner/version to evidence scanner identity/version. Unknown contracts and producer-shortened component lists cannot pass.
 
 The strict policies are project-defined examples, not MCP Registry requirements or a trust hierarchy. Policy is local and deterministic; it does not contact the Registry, download evidence, run scanners, or modify receipts. Scanner completeness is checked only when the explicit strict policy is selected; `permissive` and the existing strict examples retain their legacy receipt behavior.
 
@@ -115,8 +115,10 @@ Consumer-side input limits are explicit, documented, and fail closed. Every read
 - Evidence snapshot (`--evidence` / Action `evidence`): **16 MiB** per read. A missing, unreadable, or oversized evidence file never produces an evidence snapshot; policy reports `evidence_file_missing`, `evidence_file_read_failed`, or `evidence_size_limit_exceeded` and the decision stays INCONCLUSIVE, never PASS.
 - Receipt JSON (`--receipt`, Action `receipt`, every receipt-set entry): **4 MiB** per document.
 - Receipt-set manifest: **4 MiB**, at most **64 entries**, and **16 MiB** of total receipt bytes per set.
+- SBOM evidence envelope and SBOM bytes (`--sbom-evidence` / `--sbom`): **64 MiB** per document, and at most **1,000,000** parsed package records. An oversized or over-long inventory is `INCONCLUSIVE` (`sbom_size_limit_exceeded`, `sbom_package_limit_exceeded`), never PASS.
+- Embedded OCI/Docker image manifest and config read back from the artifact for source-shape verification: **4 MiB** per read.
 
-Receipt and set violations abort as CLI input errors (exit 3) and fail the GitHub Action step; the limits are consumer-owned and do not change receipt schema semantics, policy semantics, or the pinned compatibility profile. Observed consumer documents are a few kilobytes, so the bounds leave orders of magnitude of headroom for real inputs.
+Receipt and set violations abort as CLI input errors (exit 3) and fail the GitHub Action step; the limits are consumer-owned and do not change receipt schema semantics, policy semantics, or the pinned compatibility profile. Evidence and SBOM limit violations stay fail-closed as INCONCLUSIVE decisions instead of aborting the run. Observed consumer documents are a few kilobytes, so the bounds leave orders of magnitude of headroom for real inputs.
 
 ## Status
 
@@ -160,7 +162,7 @@ Use `--format json` for machine-readable output. Exit codes are stable for both 
 
 ## GitHub Action
 
-The experimental Action remains a thin **single-receipt** wrapper around the existing verifier and policy layer. It runs on the Node 24 GitHub Actions runtime, requires receipt, artifact, and policy inputs, and accepts an optional local `evidence` path. P2-003 does not change the Action input surface. It does not install dependencies or download `evidence_ref` in the consuming repository:
+The experimental Action remains a thin **single-receipt** wrapper around the existing verifier and policy layer. It runs on the Node 24 GitHub Actions runtime, requires receipt, artifact, and policy inputs, and accepts optional local `evidence`, `sbom-evidence`, and `sbom` paths. Multi-receipt composition (P2-003) does not change the Action input surface: the Action still verifies one receipt per step. It does not install dependencies or download `evidence_ref` in the consuming repository:
 
 ```yaml
 - uses: Xander-Xai/mcp-evidence-gate@<immutable-commit-sha>
@@ -170,7 +172,7 @@ The experimental Action remains a thin **single-receipt** wrapper around the exi
     policy: permissive
 ```
 
-It emits `decision`, `receipt-verdict`, and `profile`. PASS and policy-allowed WARN succeed; FAIL and INCONCLUSIVE fail the step. INCONCLUSIVE means the evidence does not support the release, not that the server was proven unsafe. The checked-in `dist/action/index.cjs` is a self-contained Node 24 bundle matching the declared Action runtime.
+It emits `decision`, `receipt-verdict`, `profile`, `integrity-status`, `receipt-status`, `policy-status`, `admission-status`, `scanner-execution-status`, `reason-codes`, `policy-version`, `sbom-admission-status`, `sbom-reason-codes`, `sbom-format`, `sbom-schema-version`, and `sbom-package-count`. PASS and policy-allowed WARN succeed; FAIL and INCONCLUSIVE fail the step. INCONCLUSIVE means the evidence does not support the release, not that the server was proven unsafe. The checked-in `dist/action/index.cjs` is a self-contained Node 24 bundle matching the declared Action runtime.
 
 ## Tested downstream integration
 

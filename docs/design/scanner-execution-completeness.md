@@ -17,10 +17,13 @@ The Core result intentionally keeps four claims separate:
 | `policy_status` | The selected local policy's deterministic result. |
 | `admission_status` | The Core gate result currently returned to a caller. |
 
-`policy_status` and `admission_status` currently have the same value because
-Core has no additional outer release orchestrator. They are named separately
-so a consumer can compose this result without conflating policy with receipt
-validity or byte integrity.
+`policy_status` and `admission_status` carry the same value inside the Core
+policy layer, because Core has no additional outer release orchestrator. The
+shipped CLI and Action then compose SBOM admission on top, so the reported
+`admission_status` can differ from `policy_status` when SBOM evidence is
+`blocked` or `inconclusive`. They are named separately so a consumer can
+compose this result without conflating policy with receipt validity or byte
+integrity.
 
 ## Explicit policy contract
 
@@ -32,11 +35,13 @@ constant. The policy version is
 Producer reports observed execution facts; Core owns the acceptance contract
 and exact required component set. A producer cannot become complete by
 shrinking its own `required_components`. Supported contracts are Trivy FS
-(`trivy-fs-json-v1`, scanner `trivy`, exit `0`), OSV lockfile
+(`trivy-fs-json-v1`, scanner `trivy`, exit `0`), Trivy npm package scan-view
+(`trivy-fs-npm-package-view-v1`, scanner `trivy`, exit `0`), OSV lockfile
 (`osv-scanner-v2-lockfile-json-v1`, scanner `osv-scanner`, exits `0`/`1`), and
-Trivy OCI (`trivy-oci-image-json-v1`, scanner `trivy`, exit `0`). Receipt
-scanner/name and scanner version are bound to the evidence snapshot. Unknown
-contracts cannot pass.
+Trivy OCI (`trivy-oci-image-json-v1`, scanner `trivy`, exit `0`). A legacy
+`abstract-scanner-json-v1` contract is retained only for the historical
+abstract fixture. Receipt scanner/name and scanner version are bound to the
+evidence snapshot. Unknown contracts cannot pass.
 
 The policy requires `--evidence` (or an Action/API evidence path) and a receipt
 `evidence_digest` that matches the exact local evidence bytes. It then reads
@@ -53,9 +58,11 @@ For a `complete` claim, all completion flags must be true, the exit code must
 be an integer, output must exist and be non-empty, every required component
 must be completed, and no component may be failed. A complete claim that does
 not satisfy those facts is `scanner_execution_contradictory`. A non-complete
-claim that satisfies every completion fact is also contradictory. The Core
-does not decide which exit codes Trivy, OSV, or another scanner should use;
-that scanner-specific interpretation remains producer-owned.
+claim that satisfies every completion fact is also contradictory. Core does own
+the accepted successful exit code per contract, so a `complete` claim with an
+exit code outside the contract's allowed set is `scanner_execution_exit_code_invalid`;
+a scanner-specific interpretation that Core does not model remains
+producer-owned.
 
 ## Admission matrix
 

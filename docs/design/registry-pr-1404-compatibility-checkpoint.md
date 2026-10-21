@@ -113,11 +113,11 @@ consumer contract.
   `20747d3253ba8638161dd95f1cec70df02993c22...9c9b76e102e43fe8f7bee1ba3e5f4f1c6a9a3ee6`
 - Local semantic boundary: [`evidence-semantics.md`](./evidence-semantics.md)
 - Local provenance boundary: [`provenance-drift-follow-up.md`](./provenance-drift-follow-up.md)
-- Downstream consumer: `yandexuanxuan/mcp-evidence-gate-dogfood`, whose Action
+- Downstream consumer: `Xander-Xai/mcp-evidence-gate-dogfood`, whose Action
   remains a project-owned cross-repository consumer fixture. Dogfood evidence is
   consumer-contract evidence, not proof of third-party adoption.
 - A separate real-artifact external Action run
-  ([`33036548697`](https://github.com/yandexuanxuan/mcp-use/actions/runs/33036548697))
+  ([`33036548697`](https://github.com/Xander-Xai/mcp-use/actions/runs/33036548697))
   completed matching-clean, digest-mismatch, and findings cases successfully;
   this is a fork experiment and not upstream `mcp-use` adoption.
 

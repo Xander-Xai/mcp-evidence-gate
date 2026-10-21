@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Corrected documentation facts that had drifted from the code, without any
+  behaviour change: the `receipt_set_evaluation_time_drift` abort is
+  documented as deliberately uncovered instead of as a covered regression test;
+  `trivy_result_sections_missing` is documented as the producer-supplied
+  `completeness_reason` carried in the finding details rather than a Core
+  reason code; the warning disposition of `strict-scanner-completeness` and the
+  full set of supported scanner contracts are stated per policy; the SBOM
+  reason-code list, implementation surface, and read strategy are aligned with
+  `src/core/sbom.ts`; the README now lists the SBOM and embedded-manifest
+  resource bounds, the full Action input and output surface, and the fact that
+  runtime-affecting work landed after the `06567c8` historical marker; and the
+  compatibility checkpoint's pre-rename owner references point at the
+  canonical `Xander-Xai` namespace.
 - Bounded every consumer-side file read (`src/core/bounded-reader.ts`,
   `src/core/input-budget.ts`): evidence snapshots are capped at 16 MiB,
   receipt JSON and receipt-set manifests at 4 MiB, receipt sets at 64 entries
@@ -48,9 +61,12 @@ All notable changes to this project are documented here.
   repository metadata at the canonical `Xander-Xai` owner namespace after the
   account rename, and recorded the proposal author's 2026-08-30 endorsement of
   the consumer-side invariants in `docs/project-evidence.md`.
-- Added regression tests for the `receipt_set_artifact_drift` and
-  `receipt_set_evaluation_time_drift` aborts, which were advertised in the
-  README but had no coverage.
+- Added a regression test for the `receipt_set_artifact_drift` abort, which was
+  advertised in the README but had no coverage. The
+  `receipt_set_evaluation_time_drift` abort is deliberately left uncovered: the
+  set passes one `Date` instance to every receipt, so the two evaluation clocks
+  cannot diverge, and forcing the guard would require mocking the very
+  verifier it protects.
 
 ## [0.1.0-alpha.3] - 2026-08-31
 - Preserved one deterministic verifier evaluation clock through policy replay
