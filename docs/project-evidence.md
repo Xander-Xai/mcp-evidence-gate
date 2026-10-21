@@ -44,7 +44,7 @@ code outside the Registry v1 receipt shape and covered by tests:
 | Asked for | Implementation | Test |
 | --- | --- | --- |
 | The completion set must travel with the receipt, not as free-text `scan_scope`. | `src/core/scanner-execution.ts` derives `required`/`completed`/`failed` component roll-ups and recomputes them from the detached evidence snapshot instead of trusting the declared status. | `tests/scanner-completeness.test.ts`, `tests/sbom-schema-qualification.test.ts` |
-| `incomplete` must not be able to coexist with `clean`. | `clean` is eligible only when every required component completed; a parseable report with `Results: []` is classified `trivy_result_sections_missing`. | dogfood `scripts/build_scanner_completeness_cases.py` cases `incomplete-zero-findings`, `producer-results-empty`, `failed-zero-findings` |
+| `incomplete` must not be able to coexist with `clean`. | `clean` is eligible only when every required component completed. A parseable report with `Results: []` is rejected by Core as `scanner_execution_incomplete`; `trivy_result_sections_missing` is the producer-supplied `completeness_reason` carried in the finding's `details`, not a Core reason code. | dogfood `scripts/build_scanner_completeness_cases.py` cases `incomplete-zero-findings`, `producer-results-empty`, `failed-zero-findings` |
 | Digest mismatch must become `inconclusive`, not `clean`. | Digest mismatch marks execution evidence unverified and the admission inconclusive; the scanner verdict is never rewritten. | `tests/scanner-completeness.test.ts` "keeps a tampered execution inconclusive rather than trusting its semantic status"; dogfood case `tampered-evidence` |
 | An unknown `status`/`state`/`semantic_consistency` must be treated as unmeasured, never as pass. | Unknown enum values are rejected structurally; a self-declared `complete` that contradicts its own components is `scanner_execution_contradictory`. | dogfood cases `malformed-completeness`, `contradictory-complete`, `missing-completeness` |
 
@@ -89,6 +89,23 @@ code outside the Registry v1 receipt shape and covered by tests:
   `upstream_generated_component_changed: false`, `matches_pinned_upstream: true`, and
   `safe_to_continue_with_pinned_profile: true` with an unchanged `contract_sha256` of
   `085d46d20a89a19c08b7e3ae774413b59b7ae6f16876461519fe1135916b4884`.
+- Re-verified 2026-10-21 against the GitHub GraphQL and REST APIs: registry#1404 is
+  still `OPEN`, not a draft, `merged: false` / `mergedAt: null`, head still
+  `9c9b76e1`, `reviewDecision: REVIEW_REQUIRED`, `mergeStateStatus: BLOCKED`,
+  `reviews.totalCount: 0`, `reviewThreads.totalCount: 0`, and
+  `comments.totalCount: 22` with the most recent still dated 2026-09-22. The 22
+  comment author associations are still `NONE` (16) and `CONTRIBUTOR` (6, all
+  `Nikolife2016`), with **no `MEMBER` or `OWNER` association anywhere on the
+  thread**; the REST `mergeable_state` cache still reports `blocked`. A GitHub
+  code search for `Xander-Xai/mcp-evidence-gate` returns 0 matches, and the
+  repo-scoped searches for `mcp-evidence-gate` in `ciceroyang/agentgate` and
+  `ciceroyang/mcp-supply-audit` still return 0 matches. The live profile-drift
+  sentinel run against this repository reported `NON_CONTRACT_CHANGE`,
+  `matches_pinned_upstream: true`, and
+  `safe_to_continue_with_pinned_profile: true` with an unchanged
+  `contract_sha256` of `085d46d20a89a19c08b7e3ae774413b59b7ae6f16876461519fe1135916b4884`.
+  No upstream review, merge, release, or third-party adoption signal was
+  observed.
 
 ### Limitations of the external signals
 

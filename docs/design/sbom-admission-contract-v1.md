@@ -230,6 +230,17 @@ sbom_schema_unsupported
 sbom_malformed
 sbom_inventory_missing
 sbom_inventory_empty
+sbom_inventory_malformed
+sbom_inventory_duplicate_id
+sbom_inventory_count_mismatch
+sbom_size_mismatch
+sbom_size_limit_exceeded
+sbom_package_limit_exceeded
+sbom_source_type_unsupported
+artifact_digest_missing
+artifact_digest_malformed
+artifact_digest_mismatch
+artifact_size_mismatch
 artifact_sbom_binding_missing
 artifact_sbom_binding_mismatch
 ```
@@ -271,9 +282,13 @@ constants. A conservative initial review range is:
 | `MAX_STRING_LENGTH` | 64 KiB–1 MiB | bounds hostile metadata without truncating normal identifiers |
 | `MAX_NESTING_DEPTH` | 32–128 | bounds parser recursion while allowing real JSON structure |
 
-The implementation uses explicit v1 bounds and performs path stat preflight
-before SBOM byte allocation. Limit failures are structured `INCONCLUSIVE`
-results.
+The implementation uses explicit v1 bounds and reads the SBOM in capped chunks
+from an open handle, so an oversized or growing file is rejected without
+allocating the full document and without a stat/read race. Limit failures are
+structured `INCONCLUSIVE` results. Only two of the reviewed ranges are
+adopted in v1: `MAX_SBOM_BYTES` = 64 MiB and `MAX_PACKAGE_COUNT` = 1,000,000.
+`MAX_STRING_LENGTH` and `MAX_NESTING_DEPTH` remain review candidates and are
+not implemented limits.
 
 ## 11. Architecture decision
 
@@ -298,13 +313,14 @@ and contracts must remain green.
 The implementation is limited to the following reviewed surface:
 
 ```text
-src/core/sbom-admission.ts
-src/core/types.ts (new result types only)
-src/core/policy.ts (composition only)
-src/profiles/.../sbom-contract.ts
-schemas/project-defined-sbom-evidence-v1.json
+src/core/sbom.ts
+src/cli.ts (verify command only: SBOM inputs and admission composition)
+src/action.ts (SBOM inputs and admission composition)
+src/core/bounded-reader.ts (bounded embedded-manifest read)
 tests/fixtures/sbom/*
-tests/*sbom*contract*.test.ts
+tests/sbom.test.ts
+tests/sbom-schema-qualification.test.ts
+tests/action-sbom.test.ts
 dist/action bundle (only after source and tests pass)
 ```
 
