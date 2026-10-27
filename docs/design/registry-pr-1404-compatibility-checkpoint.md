@@ -152,11 +152,11 @@ trust assessment. Until then this checkpoint requires no upstream comment or PR.
 
 - [Registry receipt PR #1404](https://github.com/modelcontextprotocol/registry/pull/1404) remains
   **OPEN, unmerged**, with HEAD
-  \`9c9b76e102e43fe8f7bee1ba3e5f4f1c6a9a3ee6\`; the latest
+  `9c9b76e102e43fe8f7bee1ba3e5f4f1c6a9a3ee6`; the latest
   discussion comment on that PR is our own reply dated 2026-09-22.
   No new requested review or approval was observed in the checked PR metadata.
 - The parent [Registry issue #1273](https://github.com/modelcontextprotocol/registry/issues/1273)
-  received a new comment from Registry \`MEMBER\` \`rdimitrov\` on
+  received a new comment from Registry `MEMBER` `rdimitrov` on
   **2026-10-23T21:44:53Z**
   ([primary evidence](https://github.com/modelcontextprotocol/registry/issues/1273#issuecomment-6375360313)).
   It consolidates the advisory readiness proposal [#1472](https://github.com/modelcontextprotocol/registry/issues/1472)
@@ -176,15 +176,15 @@ trust assessment. Until then this checkpoint requires no upstream comment or PR.
    producer identity and execution completeness) distinct from **advisory
    readiness/capability posture** (broad tool permissions, input-schema
    completeness, marketplace metadata and scores). A readiness score cannot
-   upgrade \`clean\` or act as a Registry security guarantee.
+   upgrade `clean` or act as a Registry security guarantee.
 2. For remote-only/no-inspectable-artifact entries, absence of an artifact-bound
-   receipt means **not assessed / no artifact evidence**, not \`clean\` and not
-   \`unsafe\`. If a structured inconclusive receipt is supplied, a consuming
-   client may display \`evidence_unavailable\` only when the field is actually
+   receipt means **not assessed / no artifact evidence**, not `clean` and not
+   `unsafe`. If a structured inconclusive receipt is supplied, a consuming
+   client may display `evidence_unavailable` only when the field is actually
    present and validated. Do not fabricate a receipt to force a status.
-3. The existing project-specific \`scanner_execution\` evidence remains detached
-   from Registry v1; unknown or incomplete execution cannot become \`clean\`.
-   The pinned \`registry-pr-1404@20747d3253ba8638161dd95f1cec70df02993c22\`
+3. The existing project-specific `scanner_execution` evidence remains detached
+   from Registry v1; unknown or incomplete execution cannot become `clean`.
+   The pinned `registry-pr-1404@20747d3253ba8638161dd95f1cec70df02993c22`
    compatibility identity remains unchanged.
 4. Do **not** submit a speculative Registry schema PR, modify #1404, or append
    repetitive discussion comments. Reopen only on a substantive contract diff,
@@ -192,13 +192,13 @@ trust assessment. Until then this checkpoint requires no upstream comment or PR.
 
 ### Next action and freshness
 
-- \`last_verified: 2026-10-27\`
-- \`freshness_class: event-driven\`
-- \`consumed_by: mcp-evidence-gate downstream compatibility governance\`
-- \`next_action: watch #1404 review/merge and #1273 maintainer decisions; if a
+- `last_verified: 2026-10-27`
+- `freshness_class: event-driven`
+- `consumed_by: mcp-evidence-gate downstream compatibility governance`
+- `next_action: watch #1404 review/merge and #1273 maintainer decisions; if a
   contract change occurs, compare source OpenAPI/schema bytes against the pinned
-  compatibility profile before proposing a new profile.\`
-- \`external_reply_required: false\`
+  compatibility profile before proposing a new profile.`
+- `external_reply_required: false`
 
 This is a public upstream technical-contact observation; it is not a customer
 lead, sale, program acceptance, or third-party deployment.
